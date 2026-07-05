@@ -299,3 +299,9 @@ electron-app/dist/win-unpacked/
 - [electron-app/README.md](./electron-app/README.md)：Electron 侧说明
 - [runtime/README.md](./runtime/README.md)：便携 runtime 说明
 - [mem0/LOCAL_CHANGES.md](./mem0/LOCAL_CHANGES.md)：vendored mem0 本地改动记录
+
+## 开源许可
+
+本项目采用 [Apache License 2.0](./LICENSE)。
+
+仓库中集成或引用的第三方模块仍分别遵循其各自许可证；在分发、复用或二次修改时，请一并留意对应目录中的许可与归属说明。

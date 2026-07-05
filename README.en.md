@@ -299,3 +299,9 @@ This project references or integrates the following open-source projects:
 - [electron-app/README.md](./electron-app/README.md): Electron-side notes
 - [runtime/README.md](./runtime/README.md): portable runtime notes
 - [mem0/LOCAL_CHANGES.md](./mem0/LOCAL_CHANGES.md): vendored mem0 local change log
+
+## License
+
+This project is licensed under the [Apache License 2.0](./LICENSE).
+
+Third-party modules vendored or referenced in this repository continue to follow their own licenses. Please review the license and attribution notes in the corresponding directories when redistributing, reusing, or modifying them.
