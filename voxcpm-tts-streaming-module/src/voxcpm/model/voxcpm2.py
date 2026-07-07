@@ -282,6 +282,11 @@ class VoxCPM2Model(nn.Module):
         try:
             if self.device != "cuda":
                 raise ValueError("VoxCPMModel can only be optimized on CUDA device")
+            # Enable TF32 matmul for the float32 parts of the pipeline (VAE decode,
+            # RoPE). Harmless numerically, speeds up float32 GEMMs on Ampere/Ada.
+            torch.set_float32_matmul_precision("high")
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
             try:
                 import triton  # noqa: F401
             except ImportError:
