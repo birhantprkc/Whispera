@@ -325,12 +325,15 @@ def create_app(config: RealtimeAppConfig | None = None):
                         audio_stream = runtime.tts.stream_tts(text, options=request_tts_options)
                         chunk_index = 0
                         total_samples = 0
+                        captured_chunks: list[np.ndarray] | None = [] if turn_capture.enabled else None
                         while not interrupt_event.is_set():
                             done, audio = await asyncio.to_thread(_next_stream_item, audio_stream)
                             if done:
                                 break
                             encoded, num_samples = _encode_pcm_f32(audio)
                             total_samples += num_samples
+                            if captured_chunks is not None:
+                                captured_chunks.append(np.asarray(audio, dtype=np.float32).reshape(-1))
                             await send_json(
                                 {
                                     "type": "assistant.audio.chunk",
@@ -345,6 +348,18 @@ def create_app(config: RealtimeAppConfig | None = None):
                                 }
                             )
                             chunk_index += 1
+                        if captured_chunks:
+                            full_audio = np.concatenate(captured_chunks)
+                            await asyncio.to_thread(
+                                turn_capture.capture_tts_turn,
+                                turn_id or request_id,
+                                full_audio,
+                                text,
+                                request_id=tts_request_id,
+                                sample_rate=sample_rate,
+                                interrupted=interrupt_event.is_set(),
+                                extra={"chunk_count": chunk_index, "assistant_request_id": request_id},
+                            )
                         await send_json(
                             {
                                 "type": "assistant.audio.completed",

@@ -96,3 +96,55 @@ class TurnCaptureRecorder:
             "text_path": str(text_path),
             "meta_path": str(meta_path),
         }
+
+    def capture_tts_turn(
+        self,
+        turn_id: str,
+        samples: np.ndarray,
+        text: str | None,
+        *,
+        request_id: str | None = None,
+        sample_rate: int | None = None,
+        interrupted: bool = False,
+        extra: dict[str, Any] | None = None,
+    ) -> dict[str, str] | None:
+        if not self.enabled or not self.root_dir:
+            return None
+
+        sr = int(sample_rate or self.sample_rate)
+        root = Path(self.root_dir)
+        session_dir = root / self.session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        base_name = f"{_timestamp_slug()}-{_safe_name(turn_id, 'turn')}-assistant"
+        wav_path = session_dir / f"{base_name}.wav"
+        text_path = session_dir / f"{base_name}.txt"
+        meta_path = session_dir / f"{base_name}-meta.json"
+
+        _write_wav(wav_path, samples, sr)
+        text_path.write_text(str(text or ""), encoding="utf-8")
+
+        audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+        metadata: dict[str, Any] = {
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "session_id": self.session_id,
+            "turn_id": turn_id,
+            "request_id": request_id,
+            "kind": "assistant_tts",
+            "sample_rate": sr,
+            "sample_count": int(audio.size),
+            "duration_ms": round((audio.size / float(sr)) * 1000.0, 2) if sr > 0 else 0.0,
+            "interrupted": bool(interrupted),
+            "text": str(text or ""),
+            "audio_file": wav_path.name,
+            "text_file": text_path.name,
+        }
+        if extra:
+            metadata.update(extra)
+        meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return {
+            "audio_path": str(wav_path),
+            "text_path": str(text_path),
+            "meta_path": str(meta_path),
+        }
