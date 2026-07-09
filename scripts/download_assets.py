@@ -41,7 +41,7 @@ class HfFileAsset:
     revision: str = "main"
 
 
-def build_hf_assets(assets_root: Path) -> tuple[HfSnapshotAsset, HfSnapshotAsset, HfFileAsset]:
+def build_hf_assets(assets_root: Path) -> tuple[HfSnapshotAsset, HfSnapshotAsset, HfSnapshotAsset, HfFileAsset]:
     return (
         HfSnapshotAsset(
             name="asr",
@@ -73,6 +73,27 @@ def build_hf_assets(assets_root: Path) -> tuple[HfSnapshotAsset, HfSnapshotAsset
                 "model.safetensors",
                 "special_tokens_map.json",
                 "tokenization_voxcpm2.py",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            ),
+            required_files=(
+                "audiovae.pth",
+                "config.json",
+                "model.safetensors",
+                "tokenizer.json",
+                "tokenizer_config.json",
+            ),
+        ),
+        HfSnapshotAsset(
+            name="tts-1.5",
+            repo_id="openbmb/VoxCPM1.5",
+            target=assets_root / "tts" / "openbmb__VoxCPM1.5",
+            allow_patterns=(
+                "README.md",
+                "audiovae.pth",
+                "config.json",
+                "model.safetensors",
+                "special_tokens_map.json",
                 "tokenizer.json",
                 "tokenizer_config.json",
             ),
