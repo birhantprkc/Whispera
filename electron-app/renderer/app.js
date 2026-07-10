@@ -35,6 +35,7 @@ const els = {
   llmModelSize: document.getElementById("llmModelSize"),
   applyLlmBtn: document.getElementById("applyLlmBtn"),
   llmStatus: document.getElementById("llmStatus"),
+  ttsModelVersion: document.getElementById("ttsModelVersion"),
   ttsLoraSelect: document.getElementById("ttsLoraSelect"),
   refreshLoraBtn: document.getElementById("refreshLoraBtn"),
   promptAudioPath: document.getElementById("promptAudioPath"),
@@ -99,6 +100,7 @@ const state = {
   serviceLogsDir: "",
   turnCaptureDir: "",
   ttsOptions: {
+    model_version: "1.5",
     lora_selection: null,
     prompt_audio_path: null,
     prompt_text: null,
@@ -723,6 +725,7 @@ function readTtsOptions() {
   const promptText = String(els.promptText.value || "").trim();
   const hasCompleteReference = Boolean(promptAudioPath && promptText);
   return {
+    model_version: String(els.ttsModelVersion.value || "").trim() || "1.5",
     lora_selection: String(els.ttsLoraSelect.value || "").trim() || null,
     prompt_audio_path: hasCompleteReference ? promptAudioPath : null,
     prompt_text: hasCompleteReference ? promptText : null,
@@ -735,6 +738,13 @@ function readTtsOptions() {
 function applyTtsConfigToUi(config) {
   els.promptAudioPath.value = config.prompt_audio_path || "";
   els.promptText.value = config.prompt_text || "";
+
+  if (config.model_version) {
+    const options = [...els.ttsModelVersion.options];
+    if (options.some(opt => opt.value === config.model_version)) {
+      els.ttsModelVersion.value = config.model_version;
+    }
+  }
 
   if (config.lora_selection) {
     const options = [...els.ttsLoraSelect.options];
@@ -1758,6 +1768,7 @@ els.refreshLoraBtn.addEventListener("click", () => {
   refreshLoraCatalog().catch((error) => appendLog("tts.lora.catalog_error", String(error)));
 });
 els.applyTtsBtn.addEventListener("click", () => applyTtsOptions(true));
+els.ttsModelVersion.addEventListener("change", () => applyTtsOptions(false));
 els.ttsLoraSelect.addEventListener("change", () => applyTtsOptions(false));
 els.promptAudioPath.addEventListener("input", () => applyTtsOptions(false));
 els.promptAudioPath.addEventListener("change", () => applyTtsOptions(false));

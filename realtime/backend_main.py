@@ -12,6 +12,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from .asr_service import ASRRuntimeConfig, FunAsrService
@@ -98,6 +99,13 @@ class RealtimeRuntime:
         )
         self.tts_requested = bool(config.tts_enabled)
         self.tts, self.tts_error = _build_tts_service(config)
+        # torch.compile(mode="reduce-overhead") stores its CUDA-graph manager in
+        # thread-local storage, so every call that touches the compiled TTS model
+        # (warmup, sample_rate, each streaming next()) must run on the SAME thread.
+        # asyncio.to_thread uses the default multi-threaded pool, which routes calls
+        # to arbitrary threads and trips `assert _is_key_in_tls(...)` in
+        # cudagraph_trees. Pinning all TTS work to one dedicated thread fixes it.
+        self.tts_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
         self.memory = RealtimeMemoryService(
             MemoryRuntimeConfig.from_env(
                 llm_base_url=config.llm_base_url,
@@ -134,6 +142,7 @@ def _build_tts_options(payload: dict[str, Any], base: TTSRequestOptions | None =
     source = nested if isinstance(nested, dict) else payload
     current = base or TTSRequestOptions()
     return TTSRequestOptions(
+        model_version=_clean_text(source.get("model_version", current.model_version)) or current.model_version,
         lora_selection=_clean_text(source.get("lora_selection", current.lora_selection)),
         prompt_audio_path=_clean_text(source.get("prompt_audio_path", current.prompt_audio_path)),
         prompt_text=_clean_text(source.get("prompt_text", current.prompt_text)),
@@ -215,7 +224,10 @@ def create_app(config: RealtimeAppConfig | None = None):
         asr_result = await asyncio.to_thread(runtime.asr.warmup, force)
         tts_result: dict[str, Any] = {}
         if runtime.tts is not None:
-            tts_result = await asyncio.to_thread(runtime.tts.warmup, tts_options, force)
+            loop = asyncio.get_running_loop()
+            tts_result = await loop.run_in_executor(
+                runtime.tts_executor, runtime.tts.warmup, tts_options, force
+            )
         elif runtime.tts_requested and runtime.tts_error:
             tts_result = {
                 "tts_skipped": True,
@@ -304,13 +316,16 @@ def create_app(config: RealtimeAppConfig | None = None):
             async def run_tts_worker() -> None:
                 if runtime.tts is None:
                     return
+                loop = asyncio.get_running_loop()
                 while True:
                     text = await tts_queue.get()
                     try:
                         if text is None or interrupt_event.is_set():
                             return
                         tts_request_id = f"tts-{uuid.uuid4().hex[:8]}"
-                        sample_rate = await asyncio.to_thread(runtime.tts.sample_rate, request_tts_options)
+                        sample_rate = await loop.run_in_executor(
+                            runtime.tts_executor, runtime.tts.sample_rate, request_tts_options
+                        )
                         await send_json(
                             {
                                 "type": "assistant.audio.start",
@@ -327,7 +342,9 @@ def create_app(config: RealtimeAppConfig | None = None):
                         total_samples = 0
                         captured_chunks: list[np.ndarray] | None = [] if turn_capture.enabled else None
                         while not interrupt_event.is_set():
-                            done, audio = await asyncio.to_thread(_next_stream_item, audio_stream)
+                            done, audio = await loop.run_in_executor(
+                                runtime.tts_executor, _next_stream_item, audio_stream
+                            )
                             if done:
                                 break
                             encoded, num_samples = _encode_pcm_f32(audio)
@@ -372,6 +389,12 @@ def create_app(config: RealtimeAppConfig | None = None):
                             }
                         )
                     except Exception as exc:
+                        logger.exception(
+                            "tts generation failed | request_id=%s | turn_id=%s | text=%r",
+                            request_id,
+                            turn_id,
+                            text,
+                        )
                         await send_json(
                             {
                                 "type": "assistant.audio.error",
@@ -631,6 +654,7 @@ def create_app(config: RealtimeAppConfig | None = None):
                         {
                             "type": "tts.configured",
                             "session_id": session_id,
+                            "model_version": session_tts_options.model_version,
                             "lora_selection": session_tts_options.lora_selection,
                             "reference_enabled": bool(session_tts_options.prompt_audio_path and session_tts_options.prompt_text),
                             "reference_wav_enabled": bool(session_tts_options.reference_wav_path),

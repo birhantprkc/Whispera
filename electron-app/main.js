@@ -36,6 +36,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "app-config.json");
 const LORA_ROOT = process.env.MINIMIND_TTS_LORA_ROOT || path.join(ASSETS_ROOT, "lora");
 
 const DEFAULT_TTS_CONFIG = {
+  model_version: "1.5",
   lora_selection: null,
   prompt_audio_path: null,
   prompt_text: null,

@@ -19,6 +19,7 @@ class TTSRuntimeConfig:
 
 @dataclass
 class TTSRequestOptions:
+    model_version: str | None = None
     lora_selection: str | None = None
     prompt_audio_path: str | None = None
     prompt_text: str | None = None
