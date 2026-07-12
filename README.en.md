@@ -249,7 +249,14 @@ Additional notes:
 
 ## Packaging and Distribution
 
-If you want to build the Windows portable version, it is recommended to follow this order:
+The current packaging flow produces only a `win-unpacked/` portable directory. It no longer generates a NSIS installer or an extra zip. The overall idea is:
+
+- The distribution no longer copies the original source directories. Electron packaging only pulls from `build/compiled-backend/`.
+- `realtime/` and `llm-module/src/llm_module/` are compiled to `.pyd` via Cython.
+- `voxcpm-tts-streaming-module/src/voxcpm/` is still shipped as `.py` source for now (Cythonizing PyTorch model code is not worth the trouble yet).
+- Large models and external resources are not bundled into the main package. Users prepare a sibling `assets/` directory.
+
+To build the Windows portable version, follow these steps in order:
 
 ### 1. Prepare the portable Python runtime
 
@@ -263,7 +270,11 @@ Optional slimming:
 .\scripts\slim_runtime_for_distribution.ps1 -RuntimeRoot runtime\python
 ```
 
+> Ordering note: slimming removes `.lib`, `.pdb`, and similar files from the runtime, but the next step (compiling `.pyd`) needs `runtime\python\libs\python310.lib`. It is recommended to run step 2 (compile) first, then slim. The script already protects `python310.lib` and other import libraries from being deleted, but the "compile then slim" order is still the safer path.
+
 ### 2. Build the backend
+
+The packaging Python must have `Cython` installed. By default the script tries `runtime/python/python.exe`, the active conda env, and `python` on `PATH` in that order:
 
 ```powershell
 .\scripts\build_compiled_backend.ps1
@@ -275,11 +286,45 @@ If you need to specify Python explicitly:
 .\scripts\build_compiled_backend.ps1 -PythonExe C:\Users\you\python.exe
 ```
 
+The output goes to `build/compiled-backend/` by default, with a layout like:
+
+```text
+build/compiled-backend/
+  realtime/
+    app.py                # thin launcher
+    __init__.py
+    *.pyd                 # compiled modules
+  llm-module/
+    scripts/
+      start_llama_server.py
+    src/
+      llm_module/
+        __init__.py
+        *.pyd
+  voxcpm-tts-streaming-module/
+    src/
+      voxcpm/
+        *.py *.pyi *.json # copied as-is, not compiled
+  manifest.json
+```
+
+The script then runs `python -m realtime.app --help` with `PYTHONPATH=build/compiled-backend` as a sanity check.
+
 ### 3. Generate the portable directory
 
 ```powershell
 npm run dist --prefix electron-app
 ```
+
+Before the actual pack, `electron-app/scripts/ensure_compiled_backend.js` verifies:
+
+- `build/compiled-backend/realtime/app.py` exists
+- `build/compiled-backend/llm-module/scripts/start_llama_server.py` exists
+- `realtime/` and `llm-module/src/llm_module/` contain at least one `.pyd`
+- `voxcpm-tts-streaming-module/src/voxcpm/__init__.py` exists
+- `voxcpm-tts-streaming-module/src/voxcpm/` contains no `.pyd` (currently expected to be source-only)
+
+If you skipped the compile step, the pack fails loudly instead of silently shipping the original `.py` files.
 
 Output directory:
 
@@ -291,6 +336,8 @@ The final distribution usually contains two parts:
 
 1. `electron-app/dist/win-unpacked/`
 2. A separately prepared `assets/` resource directory
+
+For more detail and the security boundary discussion, see [electron-app/PACKAGING.zh-CN.md](./electron-app/PACKAGING.zh-CN.md).
 
 ## Asset and Git Strategy
 

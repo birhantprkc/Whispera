@@ -263,6 +263,8 @@ npm run dev
 .\scripts\slim_runtime_for_distribution.ps1 -RuntimeRoot runtime\python
 ```
 
+> 顺序提醒：瘦身会删掉 runtime 里的 `.lib`、`.pdb` 等文件，而下一步编译 `.pyd` 需要 `runtime\python\libs\python310.lib`。推荐先跑第 2 步编译，再做瘦身。脚本已把 `python310.lib` 等导入库加入保护名单不会误删，但仍建议按“编译 → 瘦身”的顺序执行。
+
 ### 2. 编译后端
 
 ```powershell

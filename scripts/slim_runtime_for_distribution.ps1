@@ -32,16 +32,23 @@ function Get-DirectorySizeBytes {
         return 0
     }
 
-    return (Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+    $total = [long]0
+    foreach ($file in Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue) {
+        $total += $file.Length
+    }
+    return $total
 }
 
 function Remove-ByFilter {
     param(
         [string]$Root,
-        [string]$Filter
+        [string]$Filter,
+        [string[]]$ProtectedNames = @()
     )
 
-    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Filter $Filter -ErrorAction SilentlyContinue)
+    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Filter $Filter -ErrorAction SilentlyContinue | Where-Object {
+        $ProtectedNames -notcontains $_.Name
+    })
     if (-not $files.Count) {
         return [PSCustomObject]@{ Pattern = $Filter; Count = 0; SizeBytes = 0 }
     }
@@ -61,7 +68,8 @@ function Remove-DirectoriesByName {
     )
 
     $dirs = @(Get-ChildItem -LiteralPath $Root -Recurse -Directory -ErrorAction SilentlyContinue | Where-Object {
-        $Names -contains $_.Name
+        $Names -contains $_.Name -and
+        -not (Test-Path -LiteralPath (Join-Path $_.FullName "__init__.py"))
     })
 
     if (-not $dirs.Count) {
@@ -111,7 +119,7 @@ $results = @()
 
 Write-Step "Removing debug and build artifacts"
 $results += Remove-ByFilter -Root $runtimePath -Filter "*.pdb"
-$results += Remove-ByFilter -Root $runtimePath -Filter "*.lib"
+$results += Remove-ByFilter -Root $runtimePath -Filter "*.lib" -ProtectedNames @("python310.lib", "python3.lib", "_tkinter.lib")
 $results += Remove-ByFilter -Root $runtimePath -Filter "*.map"
 $results += Remove-ByFilter -Root $runtimePath -Filter "*.pyc"
 
