@@ -1,7 +1,13 @@
-param(
+﻿param(
     [string]$EnvName = "",
     [string]$ArchivePath = "",
     [string]$TargetDir = "",
+    [ValidateSet("tar", "zip", "tar.gz")]
+    [string]$ArchiveFormat = "tar",
+    [ValidateRange(0, 9)]
+    [int]$CompressLevel = 0,
+    [int]$Threads = -1,
+    [switch]$KeepArchive,
     [switch]$ReplaceExisting,
     [switch]$SkipValidation,
     [switch]$StrictEditableCheck
@@ -69,15 +75,52 @@ function Get-MeaningfulItems {
     })
 }
 
+function Get-ArchiveExtension {
+    param([string]$Format)
+
+    switch ($Format) {
+        "tar" { return ".tar" }
+        "zip" { return ".zip" }
+        "tar.gz" { return ".tar.gz" }
+        default { throw "Unsupported archive format: $Format" }
+    }
+}
+
+function Expand-RuntimeArchive {
+    param(
+        [string]$Archive,
+        [string]$Destination,
+        [string]$Format
+    )
+
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        New-Item -ItemType Directory -Path $Destination | Out-Null
+    }
+
+    $tarCommand = Get-Command "tar" -ErrorAction SilentlyContinue
+    if ($tarCommand) {
+        # Windows bsdtar extracts zip/tar/tar.gz much faster than Expand-Archive.
+        Write-Host "Using tar for extraction: $($tarCommand.Source)"
+        & $tarCommand.Source -xf $Archive -C $Destination
+        if ($LASTEXITCODE -ne 0) {
+            throw "tar extraction failed with exit code $LASTEXITCODE"
+        }
+        return
+    }
+
+    if ($Format -eq "zip") {
+        Write-Host "tar not found; falling back to Expand-Archive (slower)." -ForegroundColor Yellow
+        Expand-Archive -LiteralPath $Archive -DestinationPath $Destination -Force
+        return
+    }
+
+    throw "tar is required to extract '.$Format' archives. Install Windows tar or pass -ArchiveFormat zip."
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $scriptDir ".."))
 $runtimeRoot = Join-Path $repoRoot "runtime"
-
-if ([string]::IsNullOrWhiteSpace($ArchivePath)) {
-    $ArchivePath = Join-Path $runtimeRoot "$EnvName.zip"
-} else {
-    $ArchivePath = Get-AbsolutePath -BaseDir $repoRoot -Candidate $ArchivePath
-}
+$archiveExtension = Get-ArchiveExtension -Format $ArchiveFormat
 
 if ([string]::IsNullOrWhiteSpace($TargetDir)) {
     $TargetDir = Join-Path $runtimeRoot "python"
@@ -85,7 +128,6 @@ if ([string]::IsNullOrWhiteSpace($TargetDir)) {
     $TargetDir = Get-AbsolutePath -BaseDir $repoRoot -Candidate $TargetDir
 }
 
-Assert-SafeSubpath -RootPath $repoRoot -ChildPath $ArchivePath
 Assert-SafeSubpath -RootPath $repoRoot -ChildPath $TargetDir
 
 $condaCommand = Require-Command -Name "conda"
@@ -126,7 +168,19 @@ if (-not $envPath) {
     throw "Conda environment not found. Activate the target environment first or pass -EnvName explicitly."
 }
 
+if ([string]::IsNullOrWhiteSpace($resolvedEnvName)) {
+    $resolvedEnvName = [System.IO.Path]::GetFileName($envPath)
+}
+
 Write-Host "Found: $envPath" -ForegroundColor Green
+
+if ([string]::IsNullOrWhiteSpace($ArchivePath)) {
+    $ArchivePath = Join-Path $runtimeRoot ($resolvedEnvName + $archiveExtension)
+} else {
+    $ArchivePath = Get-AbsolutePath -BaseDir $repoRoot -Candidate $ArchivePath
+}
+
+Assert-SafeSubpath -RootPath $repoRoot -ChildPath $ArchivePath
 
 Write-Step "Preparing runtime directories"
 if (-not (Test-Path -LiteralPath $runtimeRoot)) {
@@ -156,7 +210,15 @@ if (Test-Path -LiteralPath $ArchivePath) {
 }
 
 Write-Step "Packing conda environment"
-$packArgs = @("-p", $envPath, "-o", $ArchivePath, "--format", "zip")
+Write-Host ("Format: {0} | CompressLevel: {1} | Threads: {2}" -f $ArchiveFormat, $CompressLevel, $Threads)
+$packArgs = @(
+    "-p", $envPath,
+    "-o", $ArchivePath,
+    "--format", $ArchiveFormat,
+    "--compress-level", "$CompressLevel",
+    "--n-threads", "$Threads",
+    "--force"
+)
 if (-not $StrictEditableCheck) {
     $packArgs += "--ignore-editable-packages"
     Write-Host "Ignoring editable package checks because repo source folders are bundled separately." -ForegroundColor Yellow
@@ -172,7 +234,10 @@ if (-not (Test-Path -LiteralPath $ArchivePath)) {
 }
 
 Write-Step "Extracting archive"
-Expand-Archive -LiteralPath $ArchivePath -DestinationPath $TargetDir -Force
+$extractStarted = Get-Date
+Expand-RuntimeArchive -Archive $ArchivePath -Destination $TargetDir -Format $ArchiveFormat
+$extractSeconds = [math]::Round(((Get-Date) - $extractStarted).TotalSeconds, 1)
+Write-Host ("Extraction finished in {0}s" -f $extractSeconds) -ForegroundColor Green
 
 $condaUnpack = Join-Path $TargetDir "Scripts\conda-unpack.exe"
 if (Test-Path -LiteralPath $condaUnpack) {
@@ -200,9 +265,20 @@ if (-not $SkipValidation) {
 
 $archiveInfo = Get-Item -LiteralPath $ArchivePath
 
+if (-not $KeepArchive) {
+    Write-Step "Removing intermediate archive"
+    Remove-Item -LiteralPath $ArchivePath -Force
+    Write-Host "Deleted: $ArchivePath"
+    Write-Host "Pass -KeepArchive if you want to retain the packed archive."
+}
+
 Write-Step "Done"
-Write-Host "Archive: $ArchivePath"
-Write-Host ("Archive size: {0:N2} GB" -f ($archiveInfo.Length / 1GB))
+if ($KeepArchive) {
+    Write-Host "Archive: $ArchivePath"
+    Write-Host ("Archive size: {0:N2} GB" -f ($archiveInfo.Length / 1GB))
+} else {
+    Write-Host "Archive: removed after extraction"
+}
 Write-Host "Runtime dir: $TargetDir"
 Write-Host "Python: $pythonExe"
 Write-Host ""

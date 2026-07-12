@@ -84,8 +84,8 @@
               <label class="field">
                 <span>模型版本</span>
                 <select id="ttsModelVersion">
-                  <option value="1.5">VoxCPM 1.5</option>
-                  <option value="2">VoxCPM 2</option>
+                  <option value="1.5">VoxCPM 1.5(~6G)</option>
+                  <option value="2">VoxCPM 2(~9G)</option>
                 </select>
               </label>
               <label class="field">
@@ -122,6 +122,23 @@
               </div>
               <button class="primary-btn compact-btn" id="applyTtsBtn" type="button">Apply TTS</button>
               <div class="voice-status" id="ttsStatus">CFG 2.0, 10 steps, random seed.</div>
+            </div>
+
+            <div class="tool-view__header" style="margin-top: 24px;">
+              <p class="panel-kicker">Settings</p>
+              <h2>资源目录</h2>
+            </div>
+
+            <div class="voice-form">
+              <label class="field">
+                <span>Assets 文件夹</span>
+                <div class="file-picker-row">
+                  <input id="assetsRootPath" type="text" placeholder="默认使用程序目录下的 assets" readonly>
+                  <button class="ghost-btn compact-btn file-picker-btn" id="browseAssetsRootBtn" type="button">浏览...</button>
+                </div>
+              </label>
+              <button class="ghost-btn compact-btn" id="resetAssetsRootBtn" type="button">恢复默认目录</button>
+              <div class="voice-status" id="assetsRootStatus">正在读取资源目录...</div>
             </div>
           </section>
 

@@ -53,6 +53,10 @@ const els = {
   ttsSeed: document.getElementById("ttsSeed"),
   applyTtsBtn: document.getElementById("applyTtsBtn"),
   ttsStatus: document.getElementById("ttsStatus"),
+  assetsRootPath: document.getElementById("assetsRootPath"),
+  browseAssetsRootBtn: document.getElementById("browseAssetsRootBtn"),
+  resetAssetsRootBtn: document.getElementById("resetAssetsRootBtn"),
+  assetsRootStatus: document.getElementById("assetsRootStatus"),
   toolPanel: document.getElementById("toolPanel"),
   toolTabs: [...document.querySelectorAll("[data-panel-target]")],
   toolViews: [...document.querySelectorAll("[data-panel-view]")],
@@ -834,6 +838,77 @@ async function browseForAudio() {
   }
 }
 
+function describeAssetsRootSource(source) {
+  switch (source) {
+    case "env":
+      return "环境变量 MINIMIND_ASSETS_ROOT";
+    case "config":
+      return "已选目录";
+    case "default":
+      return "默认目录";
+    default:
+      return source || "未知来源";
+  }
+}
+
+async function refreshAssetsRoot() {
+  if (!window.desktopApp.getAssetsRoot) {
+    return;
+  }
+  try {
+    const info = await window.desktopApp.getAssetsRoot();
+    els.assetsRootPath.value = info.resolvedPath || "";
+    const sourceLabel = describeAssetsRootSource(info.source);
+    if (!info.exists) {
+      els.assetsRootStatus.textContent = `目录不存在：${info.resolvedPath || "(空)"}。请重新选择 assets 文件夹。`;
+    } else if (info.source === "env") {
+      els.assetsRootStatus.textContent = `当前使用${sourceLabel}，界面选择被忽略。`;
+    } else {
+      els.assetsRootStatus.textContent = `当前使用${sourceLabel}：${info.resolvedPath}`;
+    }
+    // Disable manual controls when an env override is in effect.
+    const envLocked = info.source === "env";
+    els.browseAssetsRootBtn.disabled = envLocked;
+    els.resetAssetsRootBtn.disabled = envLocked;
+  } catch (error) {
+    els.assetsRootStatus.textContent = "读取资源目录失败。";
+    appendLog("assets.root.read_error", String(error));
+  }
+}
+
+async function browseForAssetsRoot() {
+  if (!window.desktopApp.chooseAssetsRoot) {
+    return;
+  }
+  try {
+    const result = await window.desktopApp.chooseAssetsRoot();
+    if (result.canceled) {
+      return;
+    }
+    appendLog("assets.root.selected", { path: result.path });
+    await refreshAssetsRoot();
+    await detectResources();
+    els.assetsRootStatus.textContent = `已选择：${result.path}。如服务正在运行，请重启服务后生效。`;
+  } catch (error) {
+    appendLog("assets.root.select_error", String(error));
+  }
+}
+
+async function resetAssetsRoot() {
+  if (!window.desktopApp.clearAssetsRoot) {
+    return;
+  }
+  try {
+    await window.desktopApp.clearAssetsRoot();
+    appendLog("assets.root.reset", {});
+    await refreshAssetsRoot();
+    await detectResources();
+    els.assetsRootStatus.textContent = "已恢复默认目录。如服务正在运行，请重启服务后生效。";
+  } catch (error) {
+    appendLog("assets.root.reset_error", String(error));
+  }
+}
+
 function readNumberInput(el, fallback, min, max) {
   const value = Number(el.value);
   const safe = Number.isFinite(value) ? value : fallback;
@@ -1452,6 +1527,7 @@ async function bootstrap() {
     });
   }
   await loadLlmConfig();
+  await refreshAssetsRoot();
   await detectResources();
   await refreshLoraCatalog().catch((error) => appendLog("tts.lora.catalog_error", String(error)));
   await loadTtsConfigFromStorage();
@@ -1896,6 +1972,8 @@ els.applyLlmBtn.addEventListener("click", () => void applyLlmConfig());
 els.llmModeLocalBtn.addEventListener("click", () => setLlmMode("local", { persist: true }));
 els.llmModeApiBtn.addEventListener("click", () => setLlmMode("api", { persist: true }));
 els.browseAudioBtn.addEventListener("click", () => void browseForAudio());
+els.browseAssetsRootBtn.addEventListener("click", () => void browseForAssetsRoot());
+els.resetAssetsRootBtn.addEventListener("click", () => void resetAssetsRoot());
 els.refreshLoraBtn.addEventListener("click", () => {
   refreshLoraCatalog().catch((error) => appendLog("tts.lora.catalog_error", String(error)));
 });

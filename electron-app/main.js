@@ -13,19 +13,9 @@ const PACKAGED_BUNDLE_ROOT = path.join(process.resourcesPath, "app-bundle");
 const PACKAGED_APP_ROOT = path.dirname(process.execPath);
 const REPO_ROOT = app.isPackaged ? PACKAGED_BUNDLE_ROOT : DEV_REPO_ROOT;
 const APP_ROOT = app.isPackaged ? PACKAGED_APP_ROOT : DEV_REPO_ROOT;
-const ASSETS_ROOT = process.env.MINIMIND_ASSETS_ROOT || path.join(APP_ROOT, "assets");
 const LLM_MODULE_ROOT = path.join(REPO_ROOT, "llm-module");
 const DEFAULT_TTS_MODULE_SRC = path.join(REPO_ROOT, "voxcpm-tts-streaming-module", "src");
-const DEFAULT_LLAMA_SERVER_PATH = path.join(ASSETS_ROOT, "llama-bin", process.platform === "win32" ? "llama-server.exe" : "llama-server");
-const DEFAULT_LLM_MODELS_ROOT = path.join(ASSETS_ROOT, "llm");
-const DEFAULT_MEMORY_MODELS_ROOT = path.join(ASSETS_ROOT, "embedding");
-const DEFAULT_ASR_MODEL_PATH = path.join(ASSETS_ROOT, "asr", "SenseVoiceSmall");
 const DEFAULT_VAD_MODEL_PATH = path.join(REPO_ROOT, "model", "vad", "silero_vad.onnx");
-const DEFAULT_TTS_MODEL_PATH_CANDIDATES = [
-  path.join(ASSETS_ROOT, "tts", "openbmb__VoxCPM2"),
-  path.join(ASSETS_ROOT, "tts", "openbmb__VoxCPM1.5")
-];
-const DEFAULT_TTS_MODEL_PATH = DEFAULT_TTS_MODEL_PATH_CANDIDATES.find((candidate) => fs.existsSync(candidate)) || DEFAULT_TTS_MODEL_PATH_CANDIDATES[0];
 const configuredStartTimeoutMs = Number(process.env.MINIMIND_SERVICE_START_TIMEOUT_MS || 180000);
 const DEFAULT_START_TIMEOUT_MS = Number.isFinite(configuredStartTimeoutMs) ? configuredStartTimeoutMs : 180000;
 const WINDOW_ICON_PATH = path.join(__dirname, "build", "icon.ico");
@@ -33,7 +23,75 @@ const WINDOW_ICON_PATH = path.join(__dirname, "build", "icon.ico");
 const CONFIG_DIR = path.join(app.getPath("userData"), "config");
 const CONFIG_FILE = path.join(CONFIG_DIR, "app-config.json");
 
-const LORA_ROOT = process.env.MINIMIND_TTS_LORA_ROOT || path.join(ASSETS_ROOT, "lora");
+// Assets live in a single root that can be overridden at runtime. Resolution order:
+//   1. MINIMIND_ASSETS_ROOT env var (explicit override, highest priority)
+//   2. the folder chosen in Settings and stored in app-config.json (if it still exists)
+//   3. the bundled/default "assets" folder next to the app
+// Everything below is resolved on demand so a Settings change takes effect without a
+// full restart (running services still need a restart to pick up new paths).
+function getDefaultAssetsRoot() {
+  return path.join(APP_ROOT, "assets");
+}
+
+function getAssetsRoot() {
+  if (process.env.MINIMIND_ASSETS_ROOT) {
+    return process.env.MINIMIND_ASSETS_ROOT;
+  }
+  const configured = loadAssetsRoot();
+  if (configured && pathExists(configured, "directory")) {
+    return configured;
+  }
+  return getDefaultAssetsRoot();
+}
+
+// Report where the active assets root came from, so the UI can explain the
+// current state ("env" / "config" / "default") without duplicating the logic.
+function getAssetsRootSource() {
+  if (process.env.MINIMIND_ASSETS_ROOT) {
+    return "env";
+  }
+  const configured = loadAssetsRoot();
+  if (configured && pathExists(configured, "directory")) {
+    return "config";
+  }
+  return "default";
+}
+
+function getLlamaServerPath() {
+  if (process.env.MINIMIND_LLAMA_SERVER) {
+    return process.env.MINIMIND_LLAMA_SERVER;
+  }
+  return path.join(getAssetsRoot(), "llama-bin", process.platform === "win32" ? "llama-server.exe" : "llama-server");
+}
+
+function getLlmModelsRoot() {
+  return path.join(getAssetsRoot(), "llm");
+}
+
+function getMemoryModelsRoot() {
+  return path.join(getAssetsRoot(), "embedding");
+}
+
+function getAsrModelPath() {
+  return process.env.MINIMIND_ASR_MODEL_PATH || path.join(getAssetsRoot(), "asr", "SenseVoiceSmall");
+}
+
+function getTtsModelPathCandidates() {
+  const assetsRoot = getAssetsRoot();
+  return [
+    path.join(assetsRoot, "tts", "openbmb__VoxCPM2"),
+    path.join(assetsRoot, "tts", "openbmb__VoxCPM1.5")
+  ];
+}
+
+function getDefaultTtsModelPath() {
+  const candidates = getTtsModelPathCandidates();
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+}
+
+function getLoraRoot() {
+  return process.env.MINIMIND_TTS_LORA_ROOT || path.join(getAssetsRoot(), "lora");
+}
 
 const DEFAULT_LLM_CONFIG = {
   mode: "local",              // "local" = bundled llama-server + GGUF, "api" = external OpenAI-compatible endpoint
@@ -115,6 +173,22 @@ function saveTtsConfig(ttsConfig) {
   return saveConfig(config);
 }
 
+function loadAssetsRoot() {
+  const config = loadConfig();
+  const stored = config.assetsRoot;
+  return typeof stored === "string" && stored.trim() ? stored.trim() : null;
+}
+
+function saveAssetsRoot(assetsRoot) {
+  const config = loadConfig();
+  if (assetsRoot && String(assetsRoot).trim()) {
+    config.assetsRoot = String(assetsRoot).trim();
+  } else {
+    delete config.assetsRoot;
+  }
+  return saveConfig(config);
+}
+
 function pathExists(targetPath, kind = "any") {
   try {
     const stats = fs.statSync(targetPath);
@@ -166,7 +240,7 @@ function resolveLlmModelSelection() {
   const config = loadLlmConfig();
   const configuredPath = config.modelPath || null;
   const envPath = process.env.MINIMIND_LLM_MODEL || null;
-  const ggufCandidates = listGgufModels(DEFAULT_LLM_MODELS_ROOT);
+  const ggufCandidates = listGgufModels(getLlmModelsRoot());
 
   if (configuredPath && pathExists(configuredPath, "file")) {
     return {
@@ -205,7 +279,7 @@ function resolveLlmModelSelection() {
 
 function resolveMemoryModelSelection() {
   const envPath = process.env.MINIMIND_MEMORY_EMBEDDER_MODEL_PATH || null;
-  const ggufCandidates = listGgufModels(DEFAULT_MEMORY_MODELS_ROOT);
+  const ggufCandidates = listGgufModels(getMemoryModelsRoot());
 
   if (envPath && pathExists(envPath, "file")) {
     return {
@@ -233,20 +307,23 @@ function resolveMemoryModelSelection() {
 function getResourceStatus() {
   const llmSelection = resolveLlmModelSelection();
   const memorySelection = resolveMemoryModelSelection();
-  const llamaServerPath = process.env.MINIMIND_LLAMA_SERVER || DEFAULT_LLAMA_SERVER_PATH;
-  const asrModelPath = process.env.MINIMIND_ASR_MODEL_PATH || DEFAULT_ASR_MODEL_PATH;
+  const llamaServerPath = process.env.MINIMIND_LLAMA_SERVER || getLlamaServerPath();
+  const asrModelPath = process.env.MINIMIND_ASR_MODEL_PATH || getAsrModelPath();
   const vadModelPath = process.env.MINIMIND_VAD_MODEL_PATH || DEFAULT_VAD_MODEL_PATH;
-  const ttsModelPath = process.env.MINIMIND_TTS_MODEL_PATH || DEFAULT_TTS_MODEL_PATH;
+  const ttsModelPath = process.env.MINIMIND_TTS_MODEL_PATH || getDefaultTtsModelPath();
+  const assetsRoot = getAssetsRoot();
 
   return {
     appRoot: APP_ROOT,
-    assetsRoot: ASSETS_ROOT,
+    assetsRoot,
+    assetsRootSource: getAssetsRootSource(),
+    assetsRootExists: pathExists(assetsRoot, "directory"),
     llama: {
       path: llamaServerPath,
       exists: pathExists(llamaServerPath, "file")
     },
     llm: {
-      directory: DEFAULT_LLM_MODELS_ROOT,
+      directory: getLlmModelsRoot(),
       configuredPath: llmSelection.configuredPath,
       resolvedPath: llmSelection.resolvedPath,
       exists: Boolean(llmSelection.resolvedPath && pathExists(llmSelection.resolvedPath, "file")),
@@ -255,7 +332,7 @@ function getResourceStatus() {
     },
     memory: {
       enabled: MEMORY_ENABLED,
-      directory: DEFAULT_MEMORY_MODELS_ROOT,
+      directory: getMemoryModelsRoot(),
       embedderHttpBase: MEMORY_EMBEDDER_HTTP_BASE,
       resolvedPath: memorySelection.resolvedPath,
       exists: !MEMORY_ENABLED || Boolean(memorySelection.resolvedPath && pathExists(memorySelection.resolvedPath, "file")),
@@ -275,8 +352,8 @@ function getResourceStatus() {
       exists: pathExists(ttsModelPath, "directory")
     },
     lora: {
-      path: LORA_ROOT,
-      exists: pathExists(LORA_ROOT, "directory")
+      path: getLoraRoot(),
+      exists: pathExists(getLoraRoot(), "directory")
     },
     summary: {
       llmReady: pathExists(llamaServerPath, "file") && Boolean(llmSelection.resolvedPath && pathExists(llmSelection.resolvedPath, "file")),
@@ -317,7 +394,7 @@ function getPathInfo(targetPath) {
 }
 
 function scanLoraDirectory() {
-  const loraRoot = path.resolve(LORA_ROOT);
+  const loraRoot = path.resolve(getLoraRoot());
   if (!fs.existsSync(loraRoot)) {
     return [];
   }
@@ -804,7 +881,7 @@ function buildPythonInvocation(pythonExecutable, moduleArgs) {
 
 function buildLlamaArgs(pythonExecutable) {
   const args = ["scripts/start_llama_server.py", "--host", llamaEndpoint.host, "--port", String(llamaEndpoint.port)];
-  const llamaServerPath = process.env.MINIMIND_LLAMA_SERVER || DEFAULT_LLAMA_SERVER_PATH;
+  const llamaServerPath = getLlamaServerPath();
   if (!pathExists(llamaServerPath, "file")) {
     throw new Error(`llama-server executable not found: ${llamaServerPath}`);
   }
@@ -815,7 +892,7 @@ function buildLlamaArgs(pythonExecutable) {
   if (modelPath) {
     args.push("--model", modelPath);
   } else {
-    throw new Error(`No GGUF model is available. Put one in ${DEFAULT_LLM_MODELS_ROOT} or choose a local GGUF file in Settings.`);
+    throw new Error(`No GGUF model is available. Put one in ${getLlmModelsRoot()} or choose a local GGUF file in Settings.`);
   }
 
   const memoryInferEnabled = !/^(0|false|no)$/i.test(process.env.MINIMIND_MEMORY_INFER || "1");
@@ -828,7 +905,7 @@ function buildLlamaArgs(pythonExecutable) {
 
 function buildMemoryEmbeddingArgs(pythonExecutable) {
   const args = ["scripts/start_llama_server.py", "--host", memoryEndpoint.host, "--port", String(memoryEndpoint.port)];
-  const llamaServerPath = process.env.MINIMIND_LLAMA_SERVER || DEFAULT_LLAMA_SERVER_PATH;
+  const llamaServerPath = getLlamaServerPath();
   if (!pathExists(llamaServerPath, "file")) {
     throw new Error(`llama-server executable not found: ${llamaServerPath}`);
   }
@@ -839,7 +916,7 @@ function buildMemoryEmbeddingArgs(pythonExecutable) {
   if (modelPath) {
     args.push("--model", modelPath);
   } else {
-    throw new Error(`Memory is enabled but no embedding GGUF model is available. Set MINIMIND_MEMORY_EMBEDDER_MODEL_PATH or put one GGUF in ${DEFAULT_MEMORY_MODELS_ROOT}.`);
+    throw new Error(`Memory is enabled but no embedding GGUF model is available. Set MINIMIND_MEMORY_EMBEDDER_MODEL_PATH or put one GGUF in ${getMemoryModelsRoot()}.`);
   }
 
   args.push("--ctx-size", process.env.MINIMIND_MEMORY_CTX_SIZE || "512");
@@ -871,7 +948,7 @@ function resolveRealtimeLlmOptions() {
 }
 
 function buildRealtimeArgs(pythonExecutable, llmOptions) {
-  const asrModelPath = process.env.MINIMIND_ASR_MODEL_PATH || DEFAULT_ASR_MODEL_PATH;
+  const asrModelPath = getAsrModelPath();
   if (!pathExists(asrModelPath, "directory")) {
     throw new Error(`ASR model directory not found: ${asrModelPath}`);
   }
@@ -901,7 +978,7 @@ function buildRealtimeArgs(pythonExecutable, llmOptions) {
   }
 
   const disableTts = /^(1|true|yes)$/i.test(process.env.MINIMIND_DISABLE_TTS || "");
-  const requestedTtsModelPath = process.env.MINIMIND_TTS_MODEL_PATH || DEFAULT_TTS_MODEL_PATH;
+  const requestedTtsModelPath = process.env.MINIMIND_TTS_MODEL_PATH || getDefaultTtsModelPath();
   const hasBundledTtsStack = fs.existsSync(DEFAULT_TTS_MODULE_SRC) && fs.existsSync(requestedTtsModelPath);
   const enableTts = /^(1|true|yes)$/i.test(process.env.MINIMIND_ENABLE_TTS || "") || hasBundledTtsStack;
 
@@ -912,8 +989,9 @@ function buildRealtimeArgs(pythonExecutable, llmOptions) {
     if (requestedTtsModelPath && pathExists(requestedTtsModelPath, "directory")) {
       args.push("--tts-model-path", requestedTtsModelPath);
     }
-    if (pathExists(LORA_ROOT, "directory")) {
-      args.push("--tts-lora-root", LORA_ROOT);
+    const loraRoot = getLoraRoot();
+    if (pathExists(loraRoot, "directory")) {
+      args.push("--tts-lora-root", loraRoot);
     }
   }
   args.push("--debug-output-dir", getTurnCaptureDir());
@@ -1271,6 +1349,43 @@ app.whenReady().then(() => {
 
   ipcMain.handle("tts:save-config", (_event, ttsConfig) => {
     return saveTtsConfig(ttsConfig);
+  });
+
+  ipcMain.handle("assets:get-root", () => {
+    const configured = loadAssetsRoot();
+    const resolved = getAssetsRoot();
+    return {
+      configuredPath: configured,
+      resolvedPath: resolved,
+      source: getAssetsRootSource(),
+      exists: pathExists(resolved, "directory"),
+      defaultPath: getDefaultAssetsRoot(),
+      envOverride: process.env.MINIMIND_ASSETS_ROOT || null
+    };
+  });
+
+  ipcMain.handle("assets:choose-root", async () => {
+    if (!mainWindow) {
+      return { canceled: true };
+    }
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "选择 assets 资源文件夹",
+      properties: ["openDirectory"]
+    });
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+    const chosen = result.filePaths[0];
+    saveAssetsRoot(chosen);
+    return { canceled: false, path: chosen };
+  });
+
+  ipcMain.handle("assets:set-root", (_event, assetsRoot) => {
+    return saveAssetsRoot(assetsRoot);
+  });
+
+  ipcMain.handle("assets:clear-root", () => {
+    return saveAssetsRoot(null);
   });
 
   createWindow();

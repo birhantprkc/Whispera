@@ -32,5 +32,9 @@ contextBridge.exposeInMainWorld("desktopApp", {
   scanLoraLocal: () => ipcRenderer.invoke("lora:scan-local"),
   showAudioFileDialog: () => ipcRenderer.invoke("tts:show-audio-file-dialog"),
   getTtsConfig: () => ipcRenderer.invoke("tts:get-config"),
-  saveTtsConfig: (config) => ipcRenderer.invoke("tts:save-config", config)
+  saveTtsConfig: (config) => ipcRenderer.invoke("tts:save-config", config),
+  getAssetsRoot: () => ipcRenderer.invoke("assets:get-root"),
+  chooseAssetsRoot: () => ipcRenderer.invoke("assets:choose-root"),
+  setAssetsRoot: (assetsRoot) => ipcRenderer.invoke("assets:set-root", assetsRoot),
+  clearAssetsRoot: () => ipcRenderer.invoke("assets:clear-root")
 });
