@@ -219,19 +219,21 @@ If `MINIMIND_ASR_DEVICE` is not set, the default is `cuda`.
 
 The repository already vendors `mem0/` as source code for local long-term memory support. See [mem0/LOCAL_CHANGES.md](./mem0/LOCAL_CHANGES.md) for project-specific local modifications.
 
-There are two switches to be aware of:
+> Current status: the memory module still has known issues and is not yet stable, so it is disabled by default. Keeping it off is recommended until those issues are resolved.
 
-- `MINIMIND_MEMORY_ENABLED`: master switch for the whole memory module
-- `MINIMIND_MEMORY_INFER`: whether saved content should go through memory extraction inference
+The memory feature is controlled by the environment variable `MINIMIND_MEMORY_ENABLED`, which defaults to `0` (off). This switch is read in two places, both driven by the same variable:
 
-If you do not want memory enabled, it is recommended to disable it explicitly:
+- [electron-app/main.js](./electron-app/main.js): the Electron main process uses it to decide whether to start the memory-related services
+- [realtime/memory_service.py](./realtime/memory_service.py): the Python backend uses it to decide whether to enable the memory service
+
+Since the default is already `0`, memory stays off with no extra action. To disable it explicitly:
 
 ```powershell
 $env:MINIMIND_MEMORY_ENABLED="0"
 npm run dev
 ```
 
-If you want to enable it:
+If you want to try enabling it (note that it is still unstable):
 
 ```powershell
 $env:MINIMIND_MEMORY_ENABLED="1"
@@ -242,10 +244,10 @@ npm run dev
 
 Additional notes:
 
+- There is also a `MINIMIND_MEMORY_INFER` switch that controls whether saved content goes through memory extraction inference; set `MINIMIND_MEMORY_INFER=0` if you only want to disable memory extraction while keeping the rest.
 - `requirements.txt` already includes `requirements-mem0.txt`
 - `requirements-mem0.txt` installs local `./mem0` as an editable package
 - Memory data is written by default to `runtime/mem0/qdrant` and `runtime/mem0/history.db`
-- If you only want to disable memory extraction, but not the whole module, set `MINIMIND_MEMORY_INFER=0`
 
 ## Packaging and Distribution
 
@@ -263,14 +265,6 @@ To build the Windows portable version, follow these steps in order:
 ```powershell
 .\scripts\pack_runtime.ps1 -ReplaceExisting
 ```
-
-Optional slimming:
-
-```powershell
-.\scripts\slim_runtime_for_distribution.ps1 -RuntimeRoot runtime\python
-```
-
-> Ordering note: slimming removes `.lib`, `.pdb`, and similar files from the runtime, but the next step (compiling `.pyd`) needs `runtime\python\libs\python310.lib`. It is recommended to run step 2 (compile) first, then slim. The script already protects `python310.lib` and other import libraries from being deleted, but the "compile then slim" order is still the safer path.
 
 ### 2. Build the backend
 

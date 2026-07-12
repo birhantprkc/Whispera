@@ -219,19 +219,21 @@ $env:MINIMIND_DEBUG_TURNS="1"
 
 仓库已经将 `mem0/` 作为源码目录纳入主仓库管理，用于本地长期记忆能力。相关本地改动说明见 [mem0/LOCAL_CHANGES.md](./mem0/LOCAL_CHANGES.md)。
 
-需要注意两层开关：
+> 当前状态：记忆模块仍存在已知问题，尚不稳定，因此默认已关闭。在问题修复前，建议保持关闭状态。
 
-- `MINIMIND_MEMORY_ENABLED`：整个记忆模块总开关
-- `MINIMIND_MEMORY_INFER`：是否对保存内容做记忆提取推理
+记忆功能由环境变量 `MINIMIND_MEMORY_ENABLED` 控制，默认值为 `0`（关闭）。开关在以下两处读取，两者都以该环境变量为准：
 
-如果你不想启用记忆模块，建议显式关闭：
+- [electron-app/main.js](./electron-app/main.js)：Electron 主进程据此决定是否拉起记忆相关服务
+- [realtime/memory_service.py](./realtime/memory_service.py)：Python 后端据此决定是否启用记忆服务
+
+由于默认值已是 `0`，正常情况下无需额外操作即为关闭。如需显式关闭，可设置：
 
 ```powershell
 $env:MINIMIND_MEMORY_ENABLED="0"
 npm run dev
 ```
 
-如果你想启用它：
+如果你想尝试启用它（注意目前仍不稳定）：
 
 ```powershell
 $env:MINIMIND_MEMORY_ENABLED="1"
@@ -242,10 +244,10 @@ npm run dev
 
 补充说明：
 
+- 还有一个 `MINIMIND_MEMORY_INFER` 开关，用于控制是否对保存内容做记忆提取推理；只想关闭“记忆提取”而保留其余功能时，可设置 `MINIMIND_MEMORY_INFER=0`
 - `requirements.txt` 已经包含 `requirements-mem0.txt`
 - `requirements-mem0.txt` 会把本地 `./mem0` 作为 editable package 安装
 - memory 数据默认写入 `runtime/mem0/qdrant` 和 `runtime/mem0/history.db`
-- 只想关闭“记忆提取”，而不是整个模块时，可设置 `MINIMIND_MEMORY_INFER=0`
 
 ## 打包与发布
 
@@ -256,14 +258,6 @@ npm run dev
 ```powershell
 .\scripts\pack_runtime.ps1 -ReplaceExisting
 ```
-
-可选瘦身：
-
-```powershell
-.\scripts\slim_runtime_for_distribution.ps1 -RuntimeRoot runtime\python
-```
-
-> 顺序提醒：瘦身会删掉 runtime 里的 `.lib`、`.pdb` 等文件，而下一步编译 `.pyd` 需要 `runtime\python\libs\python310.lib`。推荐先跑第 2 步编译，再做瘦身。脚本已把 `python310.lib` 等导入库加入保护名单不会误删，但仍建议按“编译 → 瘦身”的顺序执行。
 
 ### 2. 编译后端
 
