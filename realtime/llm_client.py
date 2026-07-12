@@ -16,6 +16,7 @@ from llm_module.llm import VOICE_STRICT_PROMPT_PRESET, resolve_system_prompt  # 
 class LLMRuntimeConfig:
     base_url: str = "http://127.0.0.1:8080"
     model: str | None = None
+    api_key: str | None = None
     system_prompt: str | None = None
     temperature: float = 0.65
     top_p: float = 0.88
@@ -32,6 +33,7 @@ class LocalLLMClient:
             LLMConfig(
                 base_url=self.config.base_url,
                 model=self.config.model,
+                api_key=self.config.api_key,
                 system_prompt=resolve_system_prompt(self.config.system_prompt, VOICE_STRICT_PROMPT_PRESET),
                 temperature=self.config.temperature,
                 top_p=self.config.top_p,

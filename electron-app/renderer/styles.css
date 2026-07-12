@@ -607,6 +607,43 @@ button {
   margin-bottom: 8px;
 }
 
+.llm-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(247, 240, 231, 0.6);
+}
+
+.llm-mode-btn {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.llm-mode-btn:hover {
+  color: var(--text);
+  background: rgba(255, 252, 246, 0.72);
+}
+
+.llm-mode-btn.is-active {
+  border-color: rgba(135, 155, 131, 0.42);
+  background: var(--green-soft);
+  color: #465840;
+}
+
+.llm-mode-panel {
+  display: grid;
+  gap: 12px;
+}
+
 .file-picker-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

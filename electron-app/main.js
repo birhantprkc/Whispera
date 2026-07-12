@@ -35,6 +35,16 @@ const CONFIG_FILE = path.join(CONFIG_DIR, "app-config.json");
 
 const LORA_ROOT = process.env.MINIMIND_TTS_LORA_ROOT || path.join(ASSETS_ROOT, "lora");
 
+const DEFAULT_LLM_CONFIG = {
+  mode: "local",              // "local" = bundled llama-server + GGUF, "api" = external OpenAI-compatible endpoint
+  modelPath: null,            // local mode: path to a .gguf file
+  api: {
+    baseUrl: "",              // e.g. https://api.openai.com or https://api.openai.com/v1 (/v1 auto-handled downstream)
+    apiKey: "",               // stored in plaintext in app-config.json (local desktop app)
+    model: ""                 // model name, entered manually by the user
+  }
+};
+
 const DEFAULT_TTS_CONFIG = {
   model_version: "1.5",
   lora_selection: null,
@@ -61,7 +71,7 @@ function loadConfig() {
   } catch (error) {
     console.error("Failed to load config:", error);
   }
-  return { llm: { modelPath: null }, tts: { ...DEFAULT_TTS_CONFIG } };
+  return { llm: { ...DEFAULT_LLM_CONFIG }, tts: { ...DEFAULT_TTS_CONFIG } };
 }
 
 function saveConfig(config) {
@@ -77,7 +87,15 @@ function saveConfig(config) {
 
 function loadLlmConfig() {
   const config = loadConfig();
-  return config.llm || { modelPath: null };
+  const stored = config.llm || {};
+  // Merge over defaults so older configs (which only had modelPath) gain the
+  // new mode/api fields without losing the previously selected GGUF path.
+  return {
+    ...DEFAULT_LLM_CONFIG,
+    ...stored,
+    mode: stored.mode === "api" ? "api" : "local",
+    api: { ...DEFAULT_LLM_CONFIG.api, ...(stored.api || {}) }
+  };
 }
 
 function saveLlmConfig(llmConfig) {
@@ -754,7 +772,7 @@ async function waitForReady(service, name, checkReady, childGetter, timeoutMs = 
   throw new Error(`${lastError || service} after ${Math.round(timeoutMs / 1000)}s`);
 }
 
-function spawnManagedService(name, command, args, cwd) {
+function spawnManagedService(name, command, args, cwd, extraEnv = null) {
   serviceExits[name] = null;
   serviceLogs[name] = [];
   serviceLaunchInfo[name] = { command, args: [...args], cwd };
@@ -764,6 +782,7 @@ function spawnManagedService(name, command, args, cwd) {
     ...process.env,
     PYTHONUTF8: "1",
     PYTHONIOENCODING: "utf-8",
+    ...(extraEnv || {}),
   };
   const child = spawn(command, args, {
     cwd,
@@ -830,7 +849,28 @@ function buildMemoryEmbeddingArgs(pythonExecutable) {
   return buildPythonInvocation(pythonExecutable, args);
 }
 
-function buildRealtimeArgs(pythonExecutable) {
+// Decide what LLM endpoint the realtime backend should talk to. In "local"
+// mode it uses the bundled llama-server origin; in "api" mode it uses the
+// user-entered base URL / model, and returns the api key so the caller can
+// inject it into the child process env (never a CLI arg — keeps it out of logs).
+function resolveRealtimeLlmOptions() {
+  const llmConfig = loadLlmConfig();
+  if (llmConfig.mode === "api") {
+    const baseUrl = String(llmConfig.api.baseUrl || "").trim();
+    const model = String(llmConfig.api.model || "").trim();
+    const apiKey = String(llmConfig.api.apiKey || "").trim();
+    if (!baseUrl) {
+      throw new Error("API 模式已启用，但未填写请求地址。请在 LLM 设置中填写并应用配置。");
+    }
+    if (!model) {
+      throw new Error("API 模式已启用，但未填写模型名。请在 LLM 设置中填写并应用配置。");
+    }
+    return { mode: "api", baseUrl: baseUrl.replace(/\/+$/, ""), model, apiKey };
+  }
+  return { mode: "local", baseUrl: llamaEndpoint.origin, model: null, apiKey: "" };
+}
+
+function buildRealtimeArgs(pythonExecutable, llmOptions) {
   const asrModelPath = process.env.MINIMIND_ASR_MODEL_PATH || DEFAULT_ASR_MODEL_PATH;
   if (!pathExists(asrModelPath, "directory")) {
     throw new Error(`ASR model directory not found: ${asrModelPath}`);
@@ -854,8 +894,11 @@ function buildRealtimeArgs(pythonExecutable) {
     "--vad-path",
     vadModelPath,
     "--llm-base-url",
-    llamaEndpoint.origin
+    llmOptions.baseUrl
   ];
+  if (llmOptions.model) {
+    args.push("--llm-model", llmOptions.model);
+  }
 
   const disableTts = /^(1|true|yes)$/i.test(process.env.MINIMIND_DISABLE_TTS || "");
   const requestedTtsModelPath = process.env.MINIMIND_TTS_MODEL_PATH || DEFAULT_TTS_MODEL_PATH;
@@ -884,7 +927,10 @@ function buildRealtimeArgs(pythonExecutable) {
     args.push("--enable-memory");
   }
 
-  return buildPythonInvocation(pythonExecutable, args);
+  const invocation = buildPythonInvocation(pythonExecutable, args);
+  // API key travels via env, not argv, so it never appears in launch logs.
+  invocation.env = llmOptions.apiKey ? { MINIMIND_LLM_API_KEY: llmOptions.apiKey } : null;
+  return invocation;
 }
 
 async function startVoiceServices(ttsOptions = null) {
@@ -898,16 +944,24 @@ async function startVoiceServices(ttsOptions = null) {
       checkMem0RuntimeReady(pythonExecutable);
       sendServiceEvent("start.begin", { python: pythonExecutable });
 
-      let llamaReady = await checkLlamaReady();
-      if (llamaReady) {
-        sendServiceEvent("service.ready", { service: "llama", mode: "external", url: llamaEndpoint.origin });
+      const llmOptions = resolveRealtimeLlmOptions();
+
+      if (llmOptions.mode === "api") {
+        // API mode: the realtime backend talks directly to an external
+        // OpenAI-compatible endpoint, so no local llama-server is started.
+        sendServiceEvent("service.ready", { service: "llama", mode: "api", url: llmOptions.baseUrl });
       } else {
-        if (!isChildRunning(managedServices.llama)) {
-          const { command, args } = buildLlamaArgs(pythonExecutable);
-          spawnManagedService("llama", command, args, LLM_MODULE_ROOT);
+        let llamaReady = await checkLlamaReady();
+        if (llamaReady) {
+          sendServiceEvent("service.ready", { service: "llama", mode: "external", url: llamaEndpoint.origin });
+        } else {
+          if (!isChildRunning(managedServices.llama)) {
+            const { command, args } = buildLlamaArgs(pythonExecutable);
+            spawnManagedService("llama", command, args, LLM_MODULE_ROOT);
+          }
+          llamaReady = await waitForReady("llama-server", "llama", checkLlamaReady, () => managedServices.llama);
+          sendServiceEvent("service.ready", { service: "llama", mode: "managed", url: llamaEndpoint.origin });
         }
-        llamaReady = await waitForReady("llama-server", "llama", checkLlamaReady, () => managedServices.llama);
-        sendServiceEvent("service.ready", { service: "llama", mode: "managed", url: llamaEndpoint.origin });
       }
 
       if (MEMORY_ENABLED) {
@@ -929,8 +983,8 @@ async function startVoiceServices(ttsOptions = null) {
         sendServiceEvent("service.ready", { service: "realtime", mode: "external", url: backendEndpoint.origin });
       } else {
         if (!isChildRunning(managedServices.realtime)) {
-          const { command, args } = buildRealtimeArgs(pythonExecutable);
-          spawnManagedService("realtime", command, args, REPO_ROOT);
+          const { command, args, env } = buildRealtimeArgs(pythonExecutable, llmOptions);
+          spawnManagedService("realtime", command, args, REPO_ROOT, env);
         }
         realtimeReady = await waitForReady("realtime backend", "realtime", checkRealtimeReady, () => managedServices.realtime);
         sendServiceEvent("service.ready", { service: "realtime", mode: "managed", url: backendEndpoint.origin });
@@ -1151,6 +1205,20 @@ app.whenReady().then(() => {
     const config = loadLlmConfig();
     config.modelPath = modelPath || null;
     return saveLlmConfig(config);
+  });
+
+  ipcMain.handle("llm:get-config", () => loadLlmConfig());
+
+  ipcMain.handle("llm:set-config", (_event, incoming) => {
+    const current = loadLlmConfig();
+    const next = incoming && typeof incoming === "object" ? incoming : {};
+    const merged = {
+      ...current,
+      ...next,
+      mode: next.mode === "api" ? "api" : "local",
+      api: { ...current.api, ...(next.api || {}) }
+    };
+    return saveLlmConfig(merged);
   });
 
   ipcMain.handle("llm:get-model-info", (_event, modelPath) => {

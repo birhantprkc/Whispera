@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld("desktopApp", {
   showModelFileDialog: () => ipcRenderer.invoke("llm:show-model-file-dialog"),
   getLlmModelPath: () => ipcRenderer.invoke("llm:get-model-path"),
   setLlmModelPath: (modelPath) => ipcRenderer.invoke("llm:set-model-path", modelPath),
+  getLlmConfig: () => ipcRenderer.invoke("llm:get-config"),
+  setLlmConfig: (config) => ipcRenderer.invoke("llm:set-config", config),
   getLlmModelInfo: (modelPath) => ipcRenderer.invoke("llm:get-model-info", modelPath),
   scanLoraLocal: () => ipcRenderer.invoke("lora:scan-local"),
   showAudioFileDialog: () => ipcRenderer.invoke("tts:show-audio-file-dialog"),

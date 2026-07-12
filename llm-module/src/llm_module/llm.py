@@ -98,6 +98,18 @@ def _normalize_base_url(base_url: str) -> str:
     return value.rstrip("/")
 
 
+def _resolve_api_root(base_url: str) -> str:
+    # Callers may pass either a bare origin (http://127.0.0.1:8080 or
+    # https://api.openai.com) or a URL that already ends in the OpenAI-style
+    # /v1 path. Only append /v1 when it is not already present so both forms
+    # produce a single, correct /v1/chat/completions endpoint.
+    normalized = _normalize_base_url(base_url)
+    tail = normalized.rsplit("/", 1)[-1].lower()
+    if tail == "v1":
+        return normalized
+    return f"{normalized}/v1"
+
+
 def _coalesce_float(value: Optional[float], default: float) -> float:
     if value is None:
         return float(default)
@@ -206,12 +218,16 @@ class LlamaServerLLM:
         self.config.base_url = _normalize_base_url(self.config.base_url)
 
     @property
+    def api_root(self) -> str:
+        return _resolve_api_root(self.config.base_url)
+
+    @property
     def models_url(self) -> str:
-        return f"{self.config.base_url}/v1/models"
+        return f"{self.api_root}/models"
 
     @property
     def chat_completions_url(self) -> str:
-        return f"{self.config.base_url}/v1/chat/completions"
+        return f"{self.api_root}/chat/completions"
 
     def _build_headers(self, stream: bool = False) -> Dict[str, str]:
         headers = {

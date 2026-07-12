@@ -89,6 +89,7 @@ class RealtimeAppConfig:
     port: int = 8011
     llm_base_url: str = "http://127.0.0.1:8080"
     llm_model: str | None = None
+    llm_api_key: str | None = None
     max_history_turns: int = 6
     asr_model_path: str = str(REPO_ROOT / "model" / "SenseVoiceSmall")
     asr_device: str = "cuda"
@@ -128,6 +129,7 @@ class RealtimeRuntime:
             LLMRuntimeConfig(
                 base_url=config.llm_base_url,
                 model=config.llm_model,
+                api_key=config.llm_api_key,
             )
         )
         self.asr = FunAsrService(
@@ -145,6 +147,11 @@ class RealtimeRuntime:
         # to arbitrary threads and trips `assert _is_key_in_tls(...)` in
         # cudagraph_trees. Pinning all TTS work to one dedicated thread fixes it.
         self.tts_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tts")
+        # NOTE(llm-api-mode): when the chat LLM runs against an external
+        # OpenAI-compatible API (config.llm_api_key set), the mem0 inference LLM
+        # is still pointed at llm_base_url WITHOUT the api_key. Memory is disabled
+        # by default so this is deferred, but if memory is later enabled in API
+        # mode, thread config.llm_api_key through MemoryRuntimeConfig here too.
         self.memory = RealtimeMemoryService(
             MemoryRuntimeConfig.from_env(
                 llm_base_url=config.llm_base_url,
@@ -219,8 +226,18 @@ def create_app(config: RealtimeAppConfig | None = None):
         try:
             models = runtime.llm.list_models()
         except Exception as exc:
-            upstream_ok = False
-            error_message = str(exc)
+            # Remote OpenAI-compatible endpoints often don't expose /v1/models,
+            # or require scopes that chat completions don't. When the user has
+            # already configured an explicit model name (API mode), don't treat
+            # a failed models listing as "backend not ready" — that would block
+            # Electron's startup wait forever.
+            if config.llm_model:
+                upstream_ok = True
+                models = [config.llm_model]
+                error_message = f"models list unavailable (using configured model): {exc}"
+            else:
+                upstream_ok = False
+                error_message = str(exc)
         notes = [
             "text.input is available in the scaffold",
             "binary audio streaming is now supported",
@@ -1010,6 +1027,8 @@ def parse_args() -> RealtimeAppConfig:
     parser.add_argument("--port", default=8011, type=int)
     parser.add_argument("--llm-base-url", default="http://127.0.0.1:8080")
     parser.add_argument("--llm-model", default=None)
+    # API key is read from MINIMIND_LLM_API_KEY (env) rather than a CLI flag so
+    # the secret does not leak into process listings or service launch logs.
     parser.add_argument("--max-history-turns", default=6, type=int)
     parser.add_argument("--asr-model-path", default=str(REPO_ROOT / "model" / "SenseVoiceSmall"))
     parser.add_argument("--asr-device", default="cuda")
@@ -1038,6 +1057,7 @@ def parse_args() -> RealtimeAppConfig:
         port=args.port,
         llm_base_url=args.llm_base_url,
         llm_model=args.llm_model,
+        llm_api_key=(os.getenv("MINIMIND_LLM_API_KEY") or "").strip() or None,
         max_history_turns=args.max_history_turns,
         asr_model_path=args.asr_model_path,
         asr_device=args.asr_device,

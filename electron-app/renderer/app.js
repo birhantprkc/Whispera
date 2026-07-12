@@ -28,11 +28,18 @@ const els = {
   logCaptureToggle: document.getElementById("logCaptureToggle"),
   logCaptureHint: document.getElementById("logCaptureHint"),
   openServiceLogsBtn: document.getElementById("openServiceLogsBtn"),
+  llmModeLocalBtn: document.getElementById("llmModeLocalBtn"),
+  llmModeApiBtn: document.getElementById("llmModeApiBtn"),
+  llmLocalPanel: document.getElementById("llmLocalPanel"),
+  llmApiPanel: document.getElementById("llmApiPanel"),
   llmModelPath: document.getElementById("llmModelPath"),
   browseModelBtn: document.getElementById("browseModelBtn"),
   llmModelInfo: document.getElementById("llmModelInfo"),
   llmModelName: document.getElementById("llmModelName"),
   llmModelSize: document.getElementById("llmModelSize"),
+  llmApiBaseUrl: document.getElementById("llmApiBaseUrl"),
+  llmApiKey: document.getElementById("llmApiKey"),
+  llmApiModel: document.getElementById("llmApiModel"),
   applyLlmBtn: document.getElementById("applyLlmBtn"),
   llmStatus: document.getElementById("llmStatus"),
   ttsModelVersion: document.getElementById("ttsModelVersion"),
@@ -91,9 +98,15 @@ const state = {
     wsUrl: ""
   },
   llm: {
+    mode: "local",
     modelPath: null,
     modelName: null,
-    modelSize: null
+    modelSize: null,
+    api: {
+      baseUrl: "",
+      apiKey: "",
+      model: ""
+    }
   },
   resourceStatus: null,
   logCaptureEnabled: false,
@@ -538,17 +551,57 @@ function appendConversationText(role, text) {
 function updateLlmModelDisplay() {
   const { modelPath, modelName, modelSize } = state.llm;
   els.llmModelPath.value = modelPath || "";
-  
+
   if (modelName) {
     els.llmModelName.textContent = modelName;
     els.llmModelSize.textContent = modelSize || "";
     els.llmModelInfo.classList.add("llm-model-info--loaded");
-    els.llmStatus.textContent = `已选择: ${modelName}${modelSize ? ` (${modelSize})` : ""}`;
   } else {
     els.llmModelName.textContent = "未选择模型";
     els.llmModelSize.textContent = "";
     els.llmModelInfo.classList.remove("llm-model-info--loaded");
-    els.llmStatus.textContent = "请选择一个 GGUF 格式的大语言模型文件。";
+  }
+
+  if (state.llm.mode !== "api") {
+    els.llmStatus.textContent = modelName
+      ? `已选择: ${modelName}${modelSize ? ` (${modelSize})` : ""}`
+      : "请选择一个 GGUF 格式的大语言模型文件。";
+  }
+}
+
+function updateLlmApiDisplay() {
+  els.llmApiBaseUrl.value = state.llm.api.baseUrl || "";
+  els.llmApiKey.value = state.llm.api.apiKey || "";
+  els.llmApiModel.value = state.llm.api.model || "";
+}
+
+function setLlmMode(mode, { persist = false } = {}) {
+  const nextMode = mode === "api" ? "api" : "local";
+  state.llm.mode = nextMode;
+  const isApi = nextMode === "api";
+
+  els.llmModeLocalBtn.classList.toggle("is-active", !isApi);
+  els.llmModeApiBtn.classList.toggle("is-active", isApi);
+  els.llmModeLocalBtn.setAttribute("aria-selected", String(!isApi));
+  els.llmModeApiBtn.setAttribute("aria-selected", String(isApi));
+  els.llmLocalPanel.hidden = isApi;
+  els.llmApiPanel.hidden = !isApi;
+
+  if (isApi) {
+    const { model } = state.llm.api;
+    els.llmStatus.textContent = model
+      ? `API 模式: ${model}`
+      : "请填写请求地址、API Key 和模型名。";
+  } else {
+    updateLlmModelDisplay();
+  }
+
+  if (persist) {
+    void window.desktopApp.setLlmConfig({ mode: nextMode }).then(() => {
+      renderResourceStatus();
+    });
+  } else {
+    renderResourceStatus();
   }
 }
 
@@ -573,8 +626,12 @@ function renderResourceStatus() {
 
   setResourceBadge(
     els.resourceLlamaState,
-    status.llama.exists ? "ok" : "warn",
-    status.llama.exists ? "Installed" : "Missing"
+    state.llm.mode === "api"
+      ? "ok"
+      : status.llama.exists
+        ? "ok"
+        : "warn",
+    state.llm.mode === "api" ? "API Mode" : status.llama.exists ? "Installed" : "Missing"
   );
   setResourceBadge(
     els.resourceAsrState,
@@ -587,7 +644,10 @@ function renderResourceStatus() {
     status.tts.exists ? "Installed" : "Missing"
   );
 
-  if (status.llm.exists) {
+  if (state.llm.mode === "api") {
+    const apiReady = Boolean(String(state.llm.api.baseUrl || "").trim() && String(state.llm.api.model || "").trim());
+    setResourceBadge(els.resourceGgufState, apiReady ? "ok" : "warn", apiReady ? "API Model" : "Configure");
+  } else if (status.llm.exists) {
     setResourceBadge(els.resourceGgufState, "ok", "Ready");
   } else if (status.llm.source === "assets.multiple") {
     setResourceBadge(els.resourceGgufState, "warn", "Select Model");
@@ -596,14 +656,23 @@ function renderResourceStatus() {
   }
 
   const missing = [];
-  if (!status.llama.exists) missing.push("llama runtime");
-  if (!status.llm.exists) missing.push(status.llm.source === "assets.multiple" ? "GGUF selection" : "GGUF");
+  if (state.llm.mode === "api") {
+    if (!String(state.llm.api.baseUrl || "").trim()) missing.push("API base URL");
+    if (!String(state.llm.api.model || "").trim()) missing.push("API model");
+  } else {
+    if (!status.llama.exists) missing.push("llama runtime");
+    if (!status.llm.exists) missing.push(status.llm.source === "assets.multiple" ? "GGUF selection" : "GGUF");
+  }
   if (!status.asr.exists) missing.push("ASR");
   if (!status.tts.exists) missing.push("TTS");
 
   if (!missing.length) {
-    const ggufSource = status.llm.source === "assets.auto" ? "auto-selected GGUF" : "configured GGUF";
-    els.resourceHint.textContent = `Core assets detected. Using ${ggufSource} from assets.`;
+    if (state.llm.mode === "api") {
+      els.resourceHint.textContent = `Core assets detected. Using remote API model ${state.llm.api.model || ""}.`;
+    } else {
+      const ggufSource = status.llm.source === "assets.auto" ? "auto-selected GGUF" : "configured GGUF";
+      els.resourceHint.textContent = `Core assets detected. Using ${ggufSource} from assets.`;
+    }
     return;
   }
 
@@ -631,9 +700,15 @@ async function detectResources() {
   }
 }
 
-async function loadLlmModelPath() {
+async function loadLlmConfig() {
   try {
-    const modelPath = await window.desktopApp.getLlmModelPath();
+    const config = await window.desktopApp.getLlmConfig();
+    state.llm.mode = config.mode === "api" ? "api" : "local";
+    state.llm.api.baseUrl = config.api?.baseUrl || "";
+    state.llm.api.apiKey = config.api?.apiKey || "";
+    state.llm.api.model = config.api?.model || "";
+
+    const modelPath = config.modelPath || null;
     if (modelPath) {
       const info = await window.desktopApp.getLlmModelInfo(modelPath);
       state.llm.modelPath = modelPath;
@@ -644,7 +719,10 @@ async function loadLlmModelPath() {
       state.llm.modelName = null;
       state.llm.modelSize = null;
     }
+
     updateLlmModelDisplay();
+    updateLlmApiDisplay();
+    setLlmMode(state.llm.mode);
   } catch (error) {
     appendLog("llm.config.load_error", String(error));
   }
@@ -673,17 +751,59 @@ async function browseForModel() {
 }
 
 async function applyLlmConfig() {
+  if (state.llm.mode === "api") {
+    return applyLlmApiConfig();
+  }
   const { modelPath } = state.llm;
   if (!modelPath) {
     appendLog("llm.config.no_model", "Please select a model file first.");
+    els.llmStatus.textContent = "请先选择一个 GGUF 模型文件。";
     return;
   }
   try {
-    const saved = await window.desktopApp.setLlmModelPath(modelPath);
+    const saved = await window.desktopApp.setLlmConfig({ mode: "local", modelPath });
     if (saved) {
-      appendLog("llm.config.saved", { modelPath });
+      appendLog("llm.config.saved", { mode: "local", modelPath });
       void detectResources();
       els.llmStatus.textContent = `配置已保存: ${state.llm.modelName}${state.llm.modelSize ? ` (${state.llm.modelSize})` : ""}。重新启动会话后生效。`;
+    } else {
+      appendLog("llm.config.save_failed", "Failed to save LLM configuration.");
+    }
+  } catch (error) {
+    appendLog("llm.config.error", String(error));
+  }
+}
+
+async function applyLlmApiConfig() {
+  const baseUrl = els.llmApiBaseUrl.value.trim();
+  const apiKey = els.llmApiKey.value.trim();
+  const model = els.llmApiModel.value.trim();
+
+  if (!baseUrl) {
+    appendLog("llm.config.no_base_url", "Please enter an API base URL.");
+    els.llmStatus.textContent = "请填写请求地址。";
+    return;
+  }
+  if (!model) {
+    appendLog("llm.config.no_api_model", "Please enter a model name.");
+    els.llmStatus.textContent = "请填写模型名。";
+    return;
+  }
+
+  state.llm.api.baseUrl = baseUrl;
+  state.llm.api.apiKey = apiKey;
+  state.llm.api.model = model;
+
+  try {
+    const saved = await window.desktopApp.setLlmConfig({
+      mode: "api",
+      api: { baseUrl, apiKey, model }
+    });
+    if (saved) {
+      // Do not log the api key.
+      appendLog("llm.config.saved", { mode: "api", baseUrl, model, apiKey: apiKey ? "***" : "" });
+      renderResourceStatus();
+      els.llmStatus.textContent = `API 配置已保存: ${model} @ ${baseUrl}。重新启动会话后生效。`;
     } else {
       appendLog("llm.config.save_failed", "Failed to save LLM configuration.");
     }
@@ -1331,7 +1451,7 @@ async function bootstrap() {
       }
     });
   }
-  await loadLlmModelPath();
+  await loadLlmConfig();
   await detectResources();
   await refreshLoraCatalog().catch((error) => appendLog("tts.lora.catalog_error", String(error)));
   await loadTtsConfigFromStorage();
@@ -1488,7 +1608,12 @@ function handleRealtimeMessage(message) {
       setTurnPhase(getReadyTurnPhase());
       setConversationText("assistant", `LLM error: ${message.message || "unknown error"}`, "Error", "warn");
       setBackendState("LLM Error", "warn");
-      setOrbMode("", "LLM request failed. Check the local LLM server.");
+      setOrbMode(
+        "",
+        state.llm.mode === "api"
+          ? "LLM request failed. Check the remote API base URL, key, and model name."
+          : "LLM request failed. Check the local LLM server."
+      );
       schedulePendingTextFlush("assistant.error", 120);
       break;
     case "asr.error":
@@ -1567,7 +1692,12 @@ async function connectRealtime(options = {}) {
 
   setServiceBusy(true);
   setBackendState("Starting Services", "warn");
-  setOrbMode("", "Starting llama-server and realtime backend...");
+  setOrbMode(
+    "",
+    state.llm.mode === "api"
+      ? "Starting realtime backend with remote LLM API..."
+      : "Starting llama-server and realtime backend..."
+  );
 
   try {
     if (window.desktopApp.startVoiceServices) {
@@ -1763,6 +1893,8 @@ els.openServiceLogsBtn.addEventListener("click", () => {
 });
 els.browseModelBtn.addEventListener("click", () => void browseForModel());
 els.applyLlmBtn.addEventListener("click", () => void applyLlmConfig());
+els.llmModeLocalBtn.addEventListener("click", () => setLlmMode("local", { persist: true }));
+els.llmModeApiBtn.addEventListener("click", () => setLlmMode("api", { persist: true }));
 els.browseAudioBtn.addEventListener("click", () => void browseForAudio());
 els.refreshLoraBtn.addEventListener("click", () => {
   refreshLoraCatalog().catch((error) => appendLog("tts.lora.catalog_error", String(error)));

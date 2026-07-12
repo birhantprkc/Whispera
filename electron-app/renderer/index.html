@@ -36,17 +36,41 @@
             </div>
 
             <div class="voice-form llm-form">
-              <label class="field">
-                <span>模型文件</span>
-                <div class="file-picker-row">
-                  <input id="llmModelPath" type="text" placeholder="选择 GGUF 模型文件..." readonly>
-                  <button class="ghost-btn compact-btn file-picker-btn" id="browseModelBtn" type="button">浏览...</button>
-                </div>
-              </label>
-              <div class="llm-model-info" id="llmModelInfo">
-                <span class="llm-model-name" id="llmModelName">未选择模型</span>
-                <span class="llm-model-size" id="llmModelSize"></span>
+              <div class="llm-mode-switch" role="tablist" aria-label="LLM 运行模式">
+                <button class="llm-mode-btn is-active" id="llmModeLocalBtn" type="button" role="tab" aria-selected="true">本地 GGUF</button>
+                <button class="llm-mode-btn" id="llmModeApiBtn" type="button" role="tab" aria-selected="false">API 接口</button>
               </div>
+
+              <div id="llmLocalPanel" class="llm-mode-panel">
+                <label class="field">
+                  <span>模型文件</span>
+                  <div class="file-picker-row">
+                    <input id="llmModelPath" type="text" placeholder="选择 GGUF 模型文件..." readonly>
+                    <button class="ghost-btn compact-btn file-picker-btn" id="browseModelBtn" type="button">浏览...</button>
+                  </div>
+                </label>
+                <div class="llm-model-info" id="llmModelInfo">
+                  <span class="llm-model-name" id="llmModelName">未选择模型</span>
+                  <span class="llm-model-size" id="llmModelSize"></span>
+                </div>
+              </div>
+
+              <div id="llmApiPanel" class="llm-mode-panel" hidden>
+                <label class="field">
+                  <span>请求地址</span>
+                  <input id="llmApiBaseUrl" type="text" placeholder="https://api.openai.com 或 .../v1" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field">
+                  <span>API Key</span>
+                  <input id="llmApiKey" type="password" placeholder="可选，本地明文存储" autocomplete="off" spellcheck="false">
+                </label>
+                <label class="field">
+                  <span>模型名</span>
+                  <input id="llmApiModel" type="text" placeholder="例如 gpt-4o-mini / deepseek-chat" autocomplete="off" spellcheck="false">
+                </label>
+                <div class="voice-status">地址末尾有无 /v1 均可；下游会自动补齐。模型名需手动填写。</div>
+              </div>
+
               <button class="primary-btn compact-btn" id="applyLlmBtn" type="button">应用 LLM 配置</button>
               <div class="voice-status" id="llmStatus">请选择一个 GGUF 格式的大语言模型文件。</div>
             </div>
