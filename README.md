@@ -2,7 +2,7 @@
 
 # Whispera
 
-Whispera 是一个面向 Windows 的本地实时语音助手桌面应用。
+Whispera 是一个面向 Windows 的本地实时对话桌面应用。
 
 项目当前支持本地麦克风输入、VAD 打断、SenseVoice ASR、`llama-server` 本地大模型推理、可选的 VoxCPM 流式 TTS，以及可选的 `mem0` 长期记忆集成。
 
@@ -23,13 +23,11 @@ Whispera 是一个面向 Windows 的本地实时语音助手桌面应用。
 - 本地可用的 Python 运行时
 - 本地模型与资源文件
 
-推荐使用你自己的 Python 或 conda 环境进行开发。`runtime/python/` 主要用于便携 runtime 打包；如果你明确想指定运行时，也可以设置 `MINIMIND_PYTHON`。
-
-ASR 默认使用 `cuda`。如果机器没有可用 GPU，或你想强制走 CPU，请显式设置 `MINIMIND_ASR_DEVICE=cpu`。
+推荐使用你自己的 Python 或 conda 环境进行开发。`runtime/python/` 主要用于便携 runtime 打包。
 
 ## 快速开始
 
-### 0. 获取代码
+### 1. 获取代码
 
 本仓库使用 Git LFS 管理部分大文件。拉取代码前请先安装并初始化 Git LFS，然后按下面步骤获取仓库：
 
@@ -40,9 +38,7 @@ cd <repo-dir>
 git lfs pull
 ```
 
-如果你已经 clone 过仓库，但发现拿到的是 LFS pointer 文件，再补执行一次 `git lfs pull` 即可。
-
-### 1. 准备 Python 环境并安装依赖
+### 2. 准备 Python 环境并安装依赖
 
 Whispera 默认要求使用 GPU 版 PyTorch。首次安装时不要换成 CPU-only 的 `torch`，否则 ASR 无法按默认配置正常工作。
 
@@ -82,7 +78,7 @@ $env:MINIMIND_PYTHON="C:\Users\you\anaconda3\envs\your_env\python.exe"
 Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 ```
 
-### 2. 准备本地资源
+### 3. 准备本地资源
 
 下面这些大资源默认不在 Git 仓库里，可以通过一条命令下载到 `assets/`：
 
@@ -100,6 +96,7 @@ python scripts/download_assets.py
 
 - `llama-bin/`：从 `ggml-org/llama.cpp` GitHub Releases 下载 `llama-server` 运行时
 - `asr/SenseVoiceSmall/`：从 Hugging Face 下载 SenseVoiceSmall
+- `tts/openbmb__VoxCPM1.5/`：从 Hugging Face 下载 VoxCPM1.5
 - `tts/openbmb__VoxCPM2/`：从 Hugging Face 下载 VoxCPM2
 - `embedding/`：从 Hugging Face 下载 `nomic-embed-text-v1.5.Q8_0.gguf`
 - `lora/`、`reference/`、`llm/`：仅创建占位目录
@@ -115,6 +112,7 @@ assets/
   asr/
     SenseVoiceSmall/
   tts/
+    openbmb__VoxCPM1.5/
     openbmb__VoxCPM2/
   lora/
   reference/
@@ -134,7 +132,7 @@ assets/
 npm run verify:assets
 ```
 
-### 3. 启动开发版
+### 4. 启动开发版
 
 ```powershell
 npm run dev
@@ -288,20 +286,6 @@ electron-app/dist/win-unpacked/
 1. `electron-app/dist/win-unpacked/`
 2. 单独准备好的 `assets/` 资源目录
 
-## 资源与 Git 策略
-
-以下内容按当前设计不进入 Git：
-
-- `assets/`
-- `distribution-assets/`
-- `runtime/python/`
-- `runtime/mem0/`
-- `build/compiled-backend/`
-- `electron-app/dist/`
-- `logs/`
-
-仓库保留的是代码、脚本、打包流程和文档；真正的模型、权重和大资源由使用者自行准备。
-
 ## 参考项目
 
 本项目参考或集成了以下开源项目：
@@ -316,6 +300,10 @@ electron-app/dist/win-unpacked/
 - [electron-app/README.md](./electron-app/README.md)：Electron 侧说明
 - [runtime/README.md](./runtime/README.md)：便携 runtime 说明
 - [mem0/LOCAL_CHANGES.md](./mem0/LOCAL_CHANGES.md)：vendored mem0 本地改动记录
+
+## 鸣谢
+
+- [linux.do 社区](https://linux.do/)
 
 ## 开源许可
 

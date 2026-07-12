@@ -2,7 +2,7 @@
 
 # Whispera
 
-Whispera is a local real-time voice assistant desktop app for Windows.
+Whispera is a desktop app for local, real-time voice conversations on Windows.
 
 The project currently supports local microphone input, VAD interruption, SenseVoice ASR, local LLM inference through `llama-server`, optional VoxCPM streaming TTS, and optional long-term memory integration through `mem0`.
 
@@ -23,15 +23,13 @@ Demo video: <https://www.bilibili.com/video/BV1nFE36mEmc>
 - A local Python runtime
 - Local model and resource files
 
-It is recommended to use your own Python or conda environment for development. `runtime/python/` is mainly used for packaging the portable runtime. If you want to force a specific runtime, you can also set `MINIMIND_PYTHON`.
-
-ASR uses `cuda` by default. If your machine does not have a usable GPU, or if you want to force CPU inference, explicitly set `MINIMIND_ASR_DEVICE=cpu`.
+It is recommended to use your own Python or conda environment for development. `runtime/python/` is mainly used for packaging the portable runtime.
 
 ## Quick Start
 
-### 0. Get the code
+### 1. Get the code
 
-This repository uses Git LFS for some large files. Install and initialize Git LFS before cloning:
+This repository uses Git LFS for some large files. Install and initialize Git LFS first, then get the repository with the steps below:
 
 ```powershell
 git lfs install
@@ -40,9 +38,7 @@ cd <repo-dir>
 git lfs pull
 ```
 
-If you already cloned the repository but only got LFS pointer files, run `git lfs pull` once more.
-
-### 1. Prepare Python and install dependencies
+### 2. Prepare Python and install dependencies
 
 Whispera requires the GPU build of PyTorch by default. Do not switch to a CPU-only `torch` in the default setup, or ASR will not work correctly with the default configuration.
 
@@ -82,7 +78,7 @@ Before the first launch, it is also recommended to explicitly clear the followin
 Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 ```
 
-### 2. Prepare local assets
+### 3. Prepare local assets
 
 The following large assets are not included in the Git repository. You can download them into `assets/` with one command:
 
@@ -100,6 +96,7 @@ The command downloads:
 
 - `llama-bin/`: the `llama-server` runtime from `ggml-org/llama.cpp` GitHub Releases
 - `asr/SenseVoiceSmall/`: SenseVoiceSmall from Hugging Face
+- `tts/openbmb__VoxCPM1.5/`: VoxCPM1.5 from Hugging Face
 - `tts/openbmb__VoxCPM2/`: VoxCPM2 from Hugging Face
 - `embedding/`: `nomic-embed-text-v1.5.Q8_0.gguf` from Hugging Face
 - `lora/`, `reference/`, and `llm/`: placeholder directories only
@@ -115,6 +112,7 @@ assets/
   asr/
     SenseVoiceSmall/
   tts/
+    openbmb__VoxCPM1.5/
     openbmb__VoxCPM2/
   lora/
   reference/
@@ -134,7 +132,7 @@ To verify the local assets:
 npm run verify:assets
 ```
 
-### 3. Start the development build
+### 4. Start the development build
 
 ```powershell
 npm run dev
@@ -251,13 +249,6 @@ Additional notes:
 
 ## Packaging and Distribution
 
-The current packaging flow produces only a `win-unpacked/` portable directory. It no longer generates a NSIS installer or an extra zip. The overall idea is:
-
-- The distribution no longer copies the original source directories. Electron packaging only pulls from `build/compiled-backend/`.
-- `realtime/` and `llm-module/src/llm_module/` are compiled to `.pyd` via Cython.
-- `voxcpm-tts-streaming-module/src/voxcpm/` is still shipped as `.py` source for now (Cythonizing PyTorch model code is not worth the trouble yet).
-- Large models and external resources are not bundled into the main package. Users prepare a sibling `assets/` directory.
-
 To build the Windows portable version, follow these steps in order:
 
 ### 1. Prepare the portable Python runtime
@@ -267,8 +258,6 @@ To build the Windows portable version, follow these steps in order:
 ```
 
 ### 2. Build the backend
-
-The packaging Python must have `Cython` installed. By default the script tries `runtime/python/python.exe`, the active conda env, and `python` on `PATH` in that order:
 
 ```powershell
 .\scripts\build_compiled_backend.ps1
@@ -280,45 +269,11 @@ If you need to specify Python explicitly:
 .\scripts\build_compiled_backend.ps1 -PythonExe C:\Users\you\python.exe
 ```
 
-The output goes to `build/compiled-backend/` by default, with a layout like:
-
-```text
-build/compiled-backend/
-  realtime/
-    app.py                # thin launcher
-    __init__.py
-    *.pyd                 # compiled modules
-  llm-module/
-    scripts/
-      start_llama_server.py
-    src/
-      llm_module/
-        __init__.py
-        *.pyd
-  voxcpm-tts-streaming-module/
-    src/
-      voxcpm/
-        *.py *.pyi *.json # copied as-is, not compiled
-  manifest.json
-```
-
-The script then runs `python -m realtime.app --help` with `PYTHONPATH=build/compiled-backend` as a sanity check.
-
 ### 3. Generate the portable directory
 
 ```powershell
 npm run dist --prefix electron-app
 ```
-
-Before the actual pack, `electron-app/scripts/ensure_compiled_backend.js` verifies:
-
-- `build/compiled-backend/realtime/app.py` exists
-- `build/compiled-backend/llm-module/scripts/start_llama_server.py` exists
-- `realtime/` and `llm-module/src/llm_module/` contain at least one `.pyd`
-- `voxcpm-tts-streaming-module/src/voxcpm/__init__.py` exists
-- `voxcpm-tts-streaming-module/src/voxcpm/` contains no `.pyd` (currently expected to be source-only)
-
-If you skipped the compile step, the pack fails loudly instead of silently shipping the original `.py` files.
 
 Output directory:
 
@@ -330,22 +285,6 @@ The final distribution usually contains two parts:
 
 1. `electron-app/dist/win-unpacked/`
 2. A separately prepared `assets/` resource directory
-
-For more detail and the security boundary discussion, see [electron-app/PACKAGING.zh-CN.md](./electron-app/PACKAGING.zh-CN.md).
-
-## Asset and Git Strategy
-
-The following content is intentionally excluded from Git:
-
-- `assets/`
-- `distribution-assets/`
-- `runtime/python/`
-- `runtime/mem0/`
-- `build/compiled-backend/`
-- `electron-app/dist/`
-- `logs/`
-
-The repository keeps source code, scripts, packaging workflows, and documentation. Actual models, weights, and large assets must be prepared by the user.
 
 ## Referenced Projects
 
@@ -361,6 +300,10 @@ This project references or integrates the following open-source projects:
 - [electron-app/README.md](./electron-app/README.md): Electron-side notes
 - [runtime/README.md](./runtime/README.md): portable runtime notes
 - [mem0/LOCAL_CHANGES.md](./mem0/LOCAL_CHANGES.md): vendored mem0 local change log
+
+## Acknowledgements
+
+- [linux.do community](https://linux.do/)
 
 ## License
 
