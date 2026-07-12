@@ -8,6 +8,9 @@ Whispera 是一个面向 Windows 的本地实时对话桌面应用。
 
 演示视频：<https://www.bilibili.com/video/BV1nFE36mEmc>
 
+<img width="1438" height="918" alt="Snipaste_2026-07-10_15-58-12" src="https://github.com/user-attachments/assets/92166c34-cd8f-4a41-a11b-a7104f1ee6bb" />
+
+
 ## 概览
 
 - Electron 负责桌面界面、配置、日志和本地服务编排。
