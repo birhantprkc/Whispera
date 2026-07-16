@@ -91,12 +91,6 @@ class VoxCPM:
         else:
             self.denoiser = None
         self.last_generation_metrics: Optional[Dict[str, Any]] = None
-        if optimize and getattr(self.tts_model, "device", None) == "cuda":
-            print("Warm up VoxCPMModel...", file=sys.stderr)
-            self.tts_model.generate(
-                target_text="Hello, this is the first test sentence.",
-                max_len=10,
-            )
 
     @classmethod
     def from_pretrained(cls,

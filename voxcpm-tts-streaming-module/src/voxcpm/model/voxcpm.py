@@ -230,6 +230,7 @@ class VoxCPMModel(nn.Module):
                 raise ValueError("triton is not installed")
             self.base_lm.forward_step = torch.compile(self.base_lm.forward_step, mode="reduce-overhead", fullgraph=True)
             self.residual_lm.forward_step = torch.compile(self.residual_lm.forward_step, mode="reduce-overhead", fullgraph=True)
+            self._feat_encoder_raw = self.feat_encoder
             self.feat_encoder = torch.compile(self.feat_encoder, mode="reduce-overhead", fullgraph=True)
             self.feat_decoder.estimator = torch.compile(self.feat_decoder.estimator, mode="reduce-overhead", fullgraph=True)
         except Exception as e:
@@ -823,7 +824,8 @@ class VoxCPMModel(nn.Module):
         """
         B, T, P, D = feat.shape
 
-        feat_embed = self.feat_encoder(feat)  # [b, t, h_feat]
+        prefill_encoder = getattr(self, "_feat_encoder_raw", self.feat_encoder)
+        feat_embed = prefill_encoder(feat)  # [b, t, h_feat]
         feat_embed = self.enc_to_lm_proj(feat_embed)
         
         if self.config.lm_config.use_mup:
