@@ -17,6 +17,11 @@ class ASRRuntimeConfig:
     language: str = "auto"
     use_itn: bool = True
     strip_emotion: bool = True
+    # Peak-normalize each utterance before inference so quiet segments reach a
+    # consistent level. Amplification is capped to avoid blowing up noise/silence.
+    normalize_audio: bool = True
+    normalize_target_peak: float = 0.95
+    normalize_max_gain: float = 8.0
 
 
 _EMOTION_TAG_RE = re.compile(r"<\|[^|]+?\|>")
@@ -42,6 +47,19 @@ def _strip_emotion_markup(text: str) -> str:
     cleaned = _EMOTION_TAG_RE.sub("", text or "")
     cleaned = _EMOJI_RE.sub("", cleaned)
     return cleaned.strip()
+
+
+def _peak_normalize(samples: np.ndarray, target_peak: float, max_gain: float) -> np.ndarray:
+    if samples.size == 0:
+        return samples
+    peak = float(np.max(np.abs(samples)))
+    if peak <= 1e-4:
+        # Effectively silence; leave it alone to avoid amplifying noise.
+        return samples
+    gain = min(target_peak / peak, max_gain)
+    if gain <= 1.0:
+        return samples
+    return samples * gain
 
 
 class FunAsrService:
@@ -72,6 +90,13 @@ class FunAsrService:
 
     def transcribe(self, samples: np.ndarray) -> str:
         self._ensure_loaded()
+        samples = np.asarray(samples, dtype=np.float32).reshape(-1)
+        if self.config.normalize_audio:
+            samples = _peak_normalize(
+                samples,
+                self.config.normalize_target_peak,
+                self.config.normalize_max_gain,
+            )
         result = self._model.generate(
             input=samples,
             cache={},

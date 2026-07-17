@@ -94,7 +94,7 @@ class RealtimeAppConfig:
     asr_model_path: str = str(REPO_ROOT / "model" / "SenseVoiceSmall")
     asr_device: str = "cuda"
     vad_path: str = str(REPO_ROOT / "model" / "vad" / "silero_vad.onnx")
-    vad_threshold: float = 0.8
+    vad_threshold: float = 0.5
     vad_min_speech_ms: int = 128
     vad_min_silence_ms: int = 800
     tts_enabled: bool = False
@@ -1033,7 +1033,7 @@ def parse_args() -> RealtimeAppConfig:
     parser.add_argument("--asr-model-path", default=str(REPO_ROOT / "model" / "SenseVoiceSmall"))
     parser.add_argument("--asr-device", default="cuda")
     parser.add_argument("--vad-path", default=str(REPO_ROOT / "model" / "vad" / "silero_vad.onnx"))
-    parser.add_argument("--vad-threshold", default=0.8, type=float)
+    parser.add_argument("--vad-threshold", default=0.5, type=float)
     parser.add_argument("--vad-min-speech-ms", default=128, type=int)
     parser.add_argument("--vad-min-silence-ms", default=800, type=int)
     tts_group = parser.add_mutually_exclusive_group()

@@ -45,7 +45,7 @@ class SileroVAD:
 @dataclass
 class VADConfig:
     sample_rate: int = 16000
-    threshold: float = 0.8
+    threshold: float = 0.5
     min_speech_ms: int = 128
     min_silence_ms: int = 800
     chunk_window: int = 1024
